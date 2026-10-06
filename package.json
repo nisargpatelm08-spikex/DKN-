@@ -1,6 +1,6 @@
 {
   "name": "dkn",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DKN - a free desktop storyboarding app for novelists",
   "main": "./out/main/index.js",
   "author": "NISARG M PATEL",
