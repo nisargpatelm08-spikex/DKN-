@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, writeFile, rm } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
@@ -92,6 +92,45 @@ app.whenReady().then(() => {
       return { ok: true, data: JSON.parse(text) }
     } catch {
       return { ok: false }
+    }
+  })
+
+  ipcMain.handle('dkn:exportPdf', async (_event, { html, title }) => {
+    const result = await dialog.showSaveDialog({
+      title: 'Export as PDF',
+      defaultPath: (title || 'story').replace(/[\\/:*?"<>|]/g, '-') + '.pdf',
+      filters: [{ name: 'PDF document', extensions: ['pdf'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+
+    const tmpHtml = join(app.getPath('temp'), 'dkn-export-' + Date.now() + '.html')
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: { sandbox: false, backgroundThrottling: false }
+    })
+    try {
+      await writeFile(tmpHtml, html, 'utf-8')
+      await win.loadFile(tmpHtml)
+      const pdf = await win.webContents.printToPDF({
+        pageSize: 'A4',
+        printBackground: true,
+        margins: {
+          marginType: 'custom',
+          top: 0.6,
+          bottom: 0.6,
+          left: 0.6,
+          right: 0.6
+        }
+      })
+      await writeFile(result.filePath, pdf)
+      return { canceled: false, path: result.filePath }
+    } finally {
+      win.destroy()
+      try {
+        await rm(tmpHtml, { force: true })
+      } catch {
+        /* ignore cleanup errors */
+      }
     }
   })
 

@@ -6,7 +6,8 @@ const api = {
   saveProject: (data, filePath) => ipcRenderer.invoke('dkn:save', { data, filePath }),
   openProject: () => ipcRenderer.invoke('dkn:open'),
   autosave: (data) => ipcRenderer.invoke('dkn:autosave', data),
-  loadAutosave: () => ipcRenderer.invoke('dkn:loadAutosave')
+  loadAutosave: () => ipcRenderer.invoke('dkn:loadAutosave'),
+  exportPdf: (html, title) => ipcRenderer.invoke('dkn:exportPdf', { html, title })
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

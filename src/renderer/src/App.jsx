@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { sampleStory } from './data/sampleStory'
 import DrawingPad from './components/DrawingPad'
+import { buildPrintHtml } from './lib/printHtml'
 
 const uid = () => crypto.randomUUID()
 const UNDO_LIMIT = 10
@@ -235,6 +236,16 @@ function App() {
       setStatus('Opened · ' + res.path)
     } catch (err) {
       window.alert('Could not open that file: ' + err.message)
+    }
+  }
+
+  const handleExportPdf = async () => {
+    if (!window.api) return
+    try {
+      const res = await window.api.exportPdf(buildPrintHtml(story), story.title)
+      if (!res.canceled) setStatus('Exported PDF · ' + res.path)
+    } catch (err) {
+      window.alert('Could not export PDF: ' + err.message)
     }
   }
 
@@ -485,6 +496,9 @@ function App() {
           <button className="bar-btn" onClick={handleOpen} title="Open story (Ctrl+O)">📂</button>
           <button className="bar-btn primary" onClick={handleSave} title="Save story (Ctrl+S)">
             {projectPath ? '💾' : '💾…'}
+          </button>
+          <button className="bar-btn" onClick={handleExportPdf} title="Export story as PDF">
+            🖨️ PDF
           </button>
           <button className="undo-btn" disabled={!history.length} onClick={undo}>
             ↶{history.length ? ` (${history.length})` : ''}
