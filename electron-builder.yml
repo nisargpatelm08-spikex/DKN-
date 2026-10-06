@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: dkn
+appId: com.dkn.app
+productName: DKN
 directories:
   buildResources: build
 files:
@@ -11,9 +11,9 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: dkn
+  executableName: DKN
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${productName}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
