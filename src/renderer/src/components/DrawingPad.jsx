@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import PropTypes from 'prop-types'
 
 const W = 900
 const H = 580
@@ -146,6 +147,12 @@ function DrawingPad({ image, onSave, onCancel }) {
       </div>
     </div>
   )
+}
+
+DrawingPad.propTypes = {
+  image: PropTypes.string,
+  onSave: PropTypes.func.isRequired,
+  onCancel: PropTypes.func.isRequired
 }
 
 export default DrawingPad

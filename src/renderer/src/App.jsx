@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { sampleStory } from './data/sampleStory'
 import DrawingPad from './components/DrawingPad'
+import Board from './components/Board'
+import Timeline from './components/Timeline'
 import { buildPrintHtml } from './lib/printHtml'
+import { pruneLinksForScene, sanitizeBoard } from './lib/boardUtils'
 
 const uid = () => crypto.randomUUID()
 const UNDO_LIMIT = 10
@@ -156,6 +159,7 @@ function App() {
   const [drawingSceneId, setDrawingSceneId] = useState(null)
   const [projectPath, setProjectPath] = useState(null)
   const [status, setStatus] = useState('')
+  const [view, setView] = useState('editor') // editor | board | timeline
   const sessionRef = useRef(false)
   const fileInputRef = useRef(null)
 
@@ -186,6 +190,20 @@ function App() {
     sessionRef.current = false
   }
 
+  // Board & Timeline use these so every change is one undo step, and a whole
+  // drag gesture (many tiny updates) still counts as a single undo step.
+  const commit = (mutate) => {
+    markChange()
+    setStory((prev) => mutate(prev))
+    endSession()
+  }
+
+  const patch = (mutate) => {
+    // Same as commit but keeps the session open (used mid-gesture).
+    markChange()
+    setStory((prev) => mutate(prev))
+  }
+
   // ----- file management -----
 
   const openStory = (data, filePath) => {
@@ -194,6 +212,7 @@ function App() {
     setSelectedSceneId(allScenes.length ? allScenes[0].id : null)
     setExpanded(new Set(data.chapters.map((c) => c.id)))
     setProjectPath(filePath)
+    setView('editor')
   }
 
   const handleNew = () => {
@@ -209,13 +228,14 @@ function App() {
     setSelectedSceneId(fresh.chapters[0].scenes[0].id)
     setExpanded(new Set([fresh.chapters[0].id]))
     setProjectPath(null)
+    setView('editor')
     setStatus('New story')
   }
 
   const handleSave = async () => {
     if (!window.api) return
     try {
-      const res = await window.api.saveProject(story, projectPath)
+      const res = await window.api.saveProject(sanitizeBoard(story), projectPath)
       if (!res.canceled) {
         setProjectPath(res.path)
         setStatus('Saved · ' + res.path)
@@ -296,6 +316,12 @@ function App() {
     setSelectedSceneId(sceneId)
   }
 
+  const openInEditor = (sceneId) => {
+    endSession()
+    setSelectedSceneId(sceneId)
+    setView('editor')
+  }
+
   const expand = (chapterId) => setExpanded((prev) => new Set([...prev, chapterId]))
 
   const toggleChapter = (chapterId) => {
@@ -343,7 +369,8 @@ function App() {
     if (!location) return
     if (!window.confirm(`Delete scene "${location.scene.title}"?`)) return
     markChange()
-    const next = deleteScene(story, sceneId)
+    let next = pruneLinksForScene(story, sceneId)
+    next = deleteScene(next, sceneId)
     setStory(next)
     endSession()
     selectScene(chooseAfterDelete(next, location.chapter.id))
@@ -354,7 +381,10 @@ function App() {
     if (!chapter) return
     if (!window.confirm(`Delete chapter "${chapter.title}" and all its scenes?`)) return
     markChange()
-    const next = deleteChapter(story, chapterId)
+    let next = deleteChapter(story, chapterId)
+    for (const scene of chapter.scenes) {
+      next = pruneLinksForScene(next, scene.id)
+    }
     setStory(next)
     endSession()
     const all = next.chapters.flatMap((c) => c.scenes)
@@ -490,6 +520,26 @@ function App() {
         <div className="story-stats">
           {story.chapters.length} chapters · {sceneCount} scenes
         </div>
+        <div className="view-switch">
+          <button
+            className={'view-btn' + (view === 'editor' ? ' active' : '')}
+            onClick={() => setView('editor')}
+          >
+            Editor
+          </button>
+          <button
+            className={'view-btn' + (view === 'board' ? ' active' : '')}
+            onClick={() => setView('board')}
+          >
+            Board
+          </button>
+          <button
+            className={'view-btn' + (view === 'timeline' ? ' active' : '')}
+            onClick={() => setView('timeline')}
+          >
+            Timeline
+          </button>
+        </div>
         <div className="topbar-actions">
           <span className="status-text" title={status}>{status}</span>
           <button className="bar-btn" onClick={handleNew} title="New story">✚</button>
@@ -612,9 +662,10 @@ function App() {
           })}
         </aside>
 
-        <main className="editor">
-          {selected ? (
-            <div className="editor-inner">
+        <main className={view === 'editor' ? 'editor' : 'editor editor-view'}>
+          {view === 'editor' ? (
+            selected ? (
+              <div className="editor-inner">
               <div className="editor-toolbar">
                 <span className="editor-path">
                   {selected.chapter.title} › Scene{' '}
@@ -674,10 +725,32 @@ function App() {
               />
             </div>
           ) : (
-            <div className="empty-state">
-              <div className="empty-big">No scene selected</div>
-              <div className="empty-hint">Pick a scene from the sidebar, or add a chapter.</div>
-            </div>
+              <div className="empty-state">
+                <div className="empty-big">No scene selected</div>
+                <div className="empty-hint">Pick a scene from the sidebar, or add a chapter.</div>
+              </div>
+            )
+          ) : view === 'board' ? (
+            <Board
+              story={story}
+              selectedSceneId={selectedSceneId}
+              onSelectScene={selectScene}
+              onOpenInEditor={openInEditor}
+              onAddScene={handleAddScene}
+              commit={commit}
+              patch={patch}
+              endSession={endSession}
+            />
+          ) : (
+            <Timeline
+              story={story}
+              selectedSceneId={selectedSceneId}
+              onSelectScene={selectScene}
+              onOpenInEditor={openInEditor}
+              patch={patch}
+              commit={commit}
+              endSession={endSession}
+            />
           )}
         </main>
       </div>

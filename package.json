@@ -4,7 +4,7 @@
   "description": "DKN - a free desktop storyboarding app for novelists",
   "main": "./out/main/index.js",
   "author": "NISARG M PATEL",
-  "homepage": "https://electron-vite.org",
+  "homepage": "https://nisargmpatel.itch.io/dkn-storyboard-for-novelists",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
