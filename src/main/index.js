@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
+import { readFile, writeFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
@@ -49,8 +50,50 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  // ---- file dialog + read/write IPC (Phase 4) ----
+
+  ipcMain.handle('dkn:save', async (_event, { data, filePath }) => {
+    let target = filePath
+    if (!target) {
+      const result = await dialog.showSaveDialog({
+        title: 'Save story',
+        defaultPath: (data?.title || 'story').replace(/[\\/:*?"<>|]/g, '-') + '.dknproj',
+        filters: [{ name: 'DKN Story', extensions: ['dknproj'] }]
+      })
+      if (result.canceled || !result.filePath) return { canceled: true }
+      target = result.filePath
+    }
+    await writeFile(target, JSON.stringify(data, null, 2), 'utf-8')
+    return { canceled: false, path: target }
+  })
+
+  ipcMain.handle('dkn:open', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Open story',
+      properties: ['openFile'],
+      filters: [{ name: 'DKN Story', extensions: ['dknproj'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return { canceled: true }
+    const filePath = result.filePaths[0]
+    const text = await readFile(filePath, 'utf-8')
+    return { canceled: false, path: filePath, data: JSON.parse(text) }
+  })
+
+  ipcMain.handle('dkn:autosave', async (_event, data) => {
+    const filePath = join(app.getPath('userData'), 'autosave.dknproj')
+    await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8')
+    return { ok: true }
+  })
+
+  ipcMain.handle('dkn:loadAutosave', async () => {
+    const filePath = join(app.getPath('userData'), 'autosave.dknproj')
+    try {
+      const text = await readFile(filePath, 'utf-8')
+      return { ok: true, data: JSON.parse(text) }
+    } catch {
+      return { ok: false }
+    }
+  })
 
   createWindow()
 

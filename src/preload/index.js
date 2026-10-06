@@ -1,8 +1,13 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
-const api = {}
+const api = {
+  saveProject: (data, filePath) => ipcRenderer.invoke('dkn:save', { data, filePath }),
+  openProject: () => ipcRenderer.invoke('dkn:open'),
+  autosave: (data) => ipcRenderer.invoke('dkn:autosave', data),
+  loadAutosave: () => ipcRenderer.invoke('dkn:loadAutosave')
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

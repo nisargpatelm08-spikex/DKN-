@@ -153,6 +153,8 @@ function App() {
   const [dragOverSceneId, setDragOverSceneId] = useState(null)
   const [history, setHistory] = useState([])
   const [drawingSceneId, setDrawingSceneId] = useState(null)
+  const [projectPath, setProjectPath] = useState(null)
+  const [status, setStatus] = useState('')
   const sessionRef = useRef(false)
   const fileInputRef = useRef(null)
 
@@ -183,16 +185,100 @@ function App() {
     sessionRef.current = false
   }
 
+  // ----- file management -----
+
+  const openStory = (data, filePath) => {
+    setStory(data)
+    const allScenes = data.chapters.flatMap((c) => c.scenes)
+    setSelectedSceneId(allScenes.length ? allScenes[0].id : null)
+    setExpanded(new Set(data.chapters.map((c) => c.id)))
+    setProjectPath(filePath)
+  }
+
+  const handleNew = () => {
+    if (!window.confirm('Start a new story? Your current work will be replaced.')) return
+    const fresh = {
+      id: uid(),
+      title: 'Untitled Story',
+      chapters: [
+        { id: uid(), title: 'Chapter 1', scenes: [{ id: uid(), title: 'Scene 1', text: '' }] }
+      ]
+    }
+    setStory(fresh)
+    setSelectedSceneId(fresh.chapters[0].scenes[0].id)
+    setExpanded(new Set([fresh.chapters[0].id]))
+    setProjectPath(null)
+    setStatus('New story')
+  }
+
+  const handleSave = async () => {
+    if (!window.api) return
+    try {
+      const res = await window.api.saveProject(story, projectPath)
+      if (!res.canceled) {
+        setProjectPath(res.path)
+        setStatus('Saved · ' + res.path)
+      }
+    } catch (err) {
+      window.alert('Could not save: ' + err.message)
+    }
+  }
+
+  const handleOpen = async () => {
+    if (!window.api) return
+    if (!window.confirm('Open a different story? Your current work will be replaced.')) return
+    try {
+      const res = await window.api.openProject()
+      if (res.canceled) return
+      if (!res.data || !Array.isArray(res.data.chapters)) throw new Error('not a DKN story file')
+      openStory(res.data, res.path)
+      setStatus('Opened · ' + res.path)
+    } catch (err) {
+      window.alert('Could not open that file: ' + err.message)
+    }
+  }
+
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+      const key = e.key.toLowerCase()
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && key === 'z' && !e.shiftKey) {
         e.preventDefault()
         undo()
+      } else if (mod && key === 's') {
+        e.preventDefault()
+        handleSave()
+      } else if (mod && key === 'o') {
+        e.preventDefault()
+        handleOpen()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+
+  // Recover the last session from autosave on launch.
+  useEffect(() => {
+    if (!window.api) return
+    window.api
+      .loadAutosave()
+      .then((res) => {
+        if (res && res.ok && res.data && Array.isArray(res.data.chapters)) {
+          openStory(res.data, null)
+          setStatus('Recovered your last session automatically')
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  // Safety net: quietly save to app data ~1s after changes.
+  useEffect(() => {
+    if (!window.api) return
+    const timer = setTimeout(() => {
+      window.api.autosave(story).catch(() => {})
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [story])
 
   const selectScene = (sceneId) => {
     endSession()
@@ -393,9 +479,17 @@ function App() {
         <div className="story-stats">
           {story.chapters.length} chapters · {sceneCount} scenes
         </div>
-        <button className="undo-btn" disabled={!history.length} onClick={undo}>
-          ↶ Undo{history.length ? ` (${history.length})` : ''}
-        </button>
+        <div className="topbar-actions">
+          <span className="status-text" title={status}>{status}</span>
+          <button className="bar-btn" onClick={handleNew} title="New story">✚</button>
+          <button className="bar-btn" onClick={handleOpen} title="Open story (Ctrl+O)">📂</button>
+          <button className="bar-btn primary" onClick={handleSave} title="Save story (Ctrl+S)">
+            {projectPath ? '💾' : '💾…'}
+          </button>
+          <button className="undo-btn" disabled={!history.length} onClick={undo}>
+            ↶{history.length ? ` (${history.length})` : ''}
+          </button>
+        </div>
       </header>
 
       <div className="layout">

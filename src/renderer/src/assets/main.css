@@ -446,6 +446,54 @@ li:has(.scene-item.drag-over) {
   cursor: default;
 }
 
+/* ---------- phase 4: file bar ---------- */
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.status-text {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--ink-soft);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.bar-btn:hover {
+  background: var(--panel-2);
+  border-color: var(--accent);
+}
+
+.bar-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+.bar-btn.primary:hover {
+  background: #9a5617;
+}
+
 /* ---------- phase 3: frame & images ---------- */
 
 .frame {
