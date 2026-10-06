@@ -155,6 +155,15 @@ export default function Timeline({
     setChipDrag({ sceneId, startClient: { x: e.clientX, y: e.clientY }, moved: false })
   }
 
+  const onChipPointerMove = (e, sceneId) => {
+    const d = chipDrag
+    if (!d || d.sceneId !== sceneId) return
+    const dist = Math.abs(e.clientX - d.startClient.x) + Math.abs(e.clientY - d.startClient.y)
+    if (dist > 4) {
+      setChipDrag((prev) => (prev && prev.sceneId === sceneId ? { ...prev, moved: true } : prev))
+    }
+  }
+
   const onChipPointerUp = (e, sceneId) => {
     const d = chipDrag
     if (!d || d.sceneId !== sceneId) return
@@ -179,9 +188,13 @@ export default function Timeline({
   story.chapters.forEach((ch, ci) =>
     ch.scenes.forEach((sc, si) => allScenes.push({ scene: sc, chapterIndex: ci, sceneIndex: si }))
   )
+  // Valid (year:day) slots that actually exist in the current calendar.
+  const validSlots = new Set()
+  layout.years.forEach((band) => band.cells.forEach((cell) => validSlots.add(band.id + ':' + cell.t)))
   const unassigned = []
   allScenes.forEach((item) => {
-    if (!item.scene.timeline) unassigned.push(item)
+    const t = item.scene.timeline
+    if (!t || !validSlots.has(t.yearId + ':' + t.day)) unassigned.push(item)
   })
 
   const dayScenes = (band, t) => {
@@ -343,6 +356,7 @@ export default function Timeline({
                       }}
                       title={item.scene.title}
                       onPointerDown={(e) => onChipPointerDown(e, item.scene.id)}
+                      onPointerMove={(e) => onChipPointerMove(e, item.scene.id)}
                       onPointerUp={(e) => onChipPointerUp(e, item.scene.id)}
                       onClick={(e) => {
                         e.stopPropagation()

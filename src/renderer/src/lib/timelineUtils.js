@@ -138,9 +138,10 @@ export function datedScenes(story) {
   story.chapters.forEach((chapter, ci) => {
     chapter.scenes.forEach((scene, si) => {
       const t = scene.timeline
-      if (t && yearIdx.has(t.yearId)) {
-        out.push({ scene, chapterIndex: ci, sceneIndex: si, yearId: t.yearId, yearIndex: yearIdx.get(t.yearId), day: t.day })
-      }
+      if (!t || !yearIdx.has(t.yearId)) return
+      const year = tl.years[yearIdx.get(t.yearId)]
+      if (!Number.isFinite(t.day) || t.day < 0 || t.day >= totalDays(year)) return
+      out.push({ scene, chapterIndex: ci, sceneIndex: si, yearId: t.yearId, yearIndex: yearIdx.get(t.yearId), day: t.day })
     })
   })
   out.sort((a, b) => a.yearIndex - b.yearIndex || a.day - b.day || a.chapterIndex - b.chapterIndex)
