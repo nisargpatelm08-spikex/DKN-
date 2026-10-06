@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import * as T from '../lib/timelineUtils'
 import * as B from '../lib/boardUtils'
+import { getPrefs, savePrefs } from '../lib/prefs'
 import { useCanvasView, useViewportSize, useWheelZoom } from '../lib/canvasView'
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
@@ -99,13 +100,31 @@ export default function Timeline({
   const [dayPanel, setDayPanel] = useState(null) // { yearId, day }
   const [chipDrag, setChipDrag] = useState(null) // { sceneId, startClient, moved }
   const [drag, setDrag] = useState(null)
+  const [sensOpen, setSensOpen] = useState(false)
+  const [prefs, setPrefsState] = useState(getPrefs)
+  const prefsRef = useRef(prefs)
+
+  const changePrefs = (patch) => {
+    const next = { ...prefsRef.current, ...patch }
+    prefsRef.current = next
+    setPrefsState(next)
+    savePrefs(next)
+  }
+
+  const resetPrefs = () => {
+    const next = { panSpeed: 0.55, zoomStep: 1.07 }
+    prefsRef.current = next
+    setPrefsState(next)
+    savePrefs(next)
+  }
 
   useWheelZoom(viewportRef, (e) => {
     const rect = viewportRef.current.getBoundingClientRect()
     const cx = e.clientX - rect.left
     const cy = e.clientY - rect.top
-    if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, cx, cy)
-    else setView((v) => ({ ...v, tx: v.tx - e.deltaX, ty: v.ty - e.deltaY }))
+    const p = prefsRef.current
+    if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? p.zoomStep : 1 / p.zoomStep, cx, cy)
+    else setView((v) => ({ ...v, tx: v.tx - e.deltaX * p.panSpeed, ty: v.ty - e.deltaY * p.panSpeed }))
   })
 
   const layout = T.layoutYears(story)
@@ -120,6 +139,7 @@ export default function Timeline({
       if (e.key === 'Escape') {
         setDayPanel(null)
         setSetupOpen(false)
+        setSensOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -202,7 +222,9 @@ export default function Timeline({
     return list.map((item) => ({
       ...item,
       color: B.zoneColor(item.chapterIndex),
-      num: `${item.chapterIndex + 1}.${item.sceneIndex + 1}`
+      num: `${item.chapterIndex + 1}.${item.sceneIndex + 1}`,
+      slot: item.scene.timeline?.slot,
+      slotIcon: T.slotIconOf(item.scene.timeline?.slot)
     }))
   }
 
@@ -227,7 +249,8 @@ export default function Timeline({
         (item) => ({
           ...item,
           color: B.zoneColor(item.chapterIndex),
-          num: `${item.chapterIndex + 1}.${item.sceneIndex + 1}`
+          num: `${item.chapterIndex + 1}.${item.sceneIndex + 1}`,
+          slot: item.scene.timeline?.slot
         })
       )
     : []
@@ -265,7 +288,61 @@ export default function Timeline({
         <button className="board-tool-btn" onClick={() => fitBounds(T.boundsOfTimeline(story))} title="Fit">
           ⛶ Fit
         </button>
+        <span className="board-sep" />
+        <button
+          className={'board-tool-btn' + (sensOpen ? ' active' : '')}
+          onClick={() => setSensOpen((o) => !o)}
+          title="Mouse sensitivity — how fast scrolling pans and zooms"
+        >
+          🖱 Sensitivity
+        </button>
       </div>
+
+      {sensOpen && (
+        <div className="tl-sens-panel" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="board-popover-head">
+            <span className="pop-title">Mouse sensitivity</span>
+            <button className="pop-close" onClick={() => setSensOpen(false)}>
+              ✕
+            </button>
+          </div>
+          <div className="tl-sens-row">
+            <label>
+              <span>Scroll pan speed</span>
+              <span>{prefs.panSpeed.toFixed(2)}×</span>
+            </label>
+            <input
+              type="range"
+              min="0.15"
+              max="2"
+              step="0.05"
+              value={prefs.panSpeed}
+              onChange={(e) => changePrefs({ panSpeed: Number(e.target.value) })}
+            />
+          </div>
+          <div className="tl-sens-row">
+            <label>
+              <span>Ctrl+scroll zoom step</span>
+              <span>{prefs.zoomStep.toFixed(2)}</span>
+            </label>
+            <input
+              type="range"
+              min="1.02"
+              max="1.25"
+              step="0.01"
+              value={prefs.zoomStep}
+              onChange={(e) => changePrefs({ zoomStep: Number(e.target.value) })}
+            />
+          </div>
+          <div className="pop-hint">
+            Lower = gentler. Settings apply to both the Timeline and the Board, and are remembered
+            on this computer.
+          </div>
+          <button className="board-tool-btn" onClick={resetPrefs}>
+            Reset to default
+          </button>
+        </div>
+      )}
 
       <div
         ref={viewportRef}
@@ -367,6 +444,7 @@ export default function Timeline({
                         onOpenInEditor(item.scene.id)
                       }}
                     >
+                      {item.slotIcon && <span className="tl-chip-slot">{item.slotIcon}</span>}
                       {item.num}
                     </div>
                   )
@@ -456,7 +534,7 @@ export default function Timeline({
             {dayPanelScenes.map((item) => (
               <div key={item.scene.id} className="tl-day-scene">
                 <span className="tl-day-scene-chip" style={{ background: B.hexToRgba(item.color, 0.28), color: item.color }}>
-                  {item.num}
+                  {item.slotIcon} {item.num}
                 </span>
                 <span
                   className="tl-day-scene-title"
@@ -464,10 +542,36 @@ export default function Timeline({
                 >
                   {item.scene.title}
                 </span>
+                <select
+                  className="tl-slot-select"
+                  value={item.slot || ''}
+                  title="Time of day for this scene"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    patch((s) =>
+                      T.assignSceneTime(s, item.scene.id, {
+                        yearId: dayPanel.yearId,
+                        day: dayPanel.day,
+                        slot: e.target.value || null
+                      })
+                    )
+                    endSession()
+                  }}
+                >
+                  <option value="">— any time —</option>
+                  {T.DAY_SLOTS.map((sl) => (
+                    <option key={sl.id} value={sl.id}>
+                      {sl.icon} {sl.label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   className="pop-x"
                   title="Remove this scene from the day"
-                  onClick={() => patch((s) => T.assignSceneTime(s, item.scene.id, null))}
+                  onClick={() => {
+                    patch((s) => T.assignSceneTime(s, item.scene.id, null))
+                    endSession()
+                  }}
                 >
                   ✕
                 </button>
@@ -482,6 +586,7 @@ export default function Timeline({
                 onChange={(e) => {
                   if (e.target.value) {
                     patch((s) => T.assignSceneTime(s, e.target.value, { yearId: dayPanel.yearId, day: dayPanel.day }))
+                    endSession()
                     e.target.value = ''
                   }
                 }}
@@ -499,8 +604,8 @@ export default function Timeline({
         )}
 
         <div className="board-hint">
-          Click a day to schedule scenes · Drag a scene chip onto a day to move it · Setup calendar builds
-          the structure from scratch
+          Click a day to schedule scenes &amp; set the time of day · Drag a scene chip onto a day to move it ·
+          Setup calendar builds the structure from scratch
         </div>
       </div>
 

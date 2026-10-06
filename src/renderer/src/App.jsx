@@ -4,7 +4,7 @@ import DrawingPad from './components/DrawingPad'
 import Board from './components/Board'
 import Timeline from './components/Timeline'
 import { buildPrintHtml } from './lib/printHtml'
-import { pruneLinksForScene, sanitizeBoard } from './lib/boardUtils'
+import { pruneLinksForScene, sanitizeBoard, CARD_W, CARD_H } from './lib/boardUtils'
 
 const uid = () => crypto.randomUUID()
 const UNDO_LIMIT = 10
@@ -359,6 +359,47 @@ function App() {
     }))
     endSession()
     expand(chapterId)
+    selectScene(scene.id)
+  }
+
+  // Used by the Board's right-click menu: same as handleAddScene but the new
+  // card is placed exactly where the user right-clicked on the canvas.
+  const handleAddSceneAt = (chapterId, x, y) => {
+    const scene = {
+      id: uid(),
+      title: 'New scene',
+      text: '',
+      board: { x: Math.round(x), y: Math.round(y) }
+    }
+    markChange()
+    setStory((prev) => ({
+      ...prev,
+      chapters: prev.chapters.map((c) =>
+        c.id === chapterId ? { ...c, scenes: [...c.scenes, scene] } : c
+      )
+    }))
+    endSession()
+    expand(chapterId)
+    selectScene(scene.id)
+  }
+
+  const handleAddChapterAt = (x, y) => {
+    const scene = {
+      id: uid(),
+      title: 'Scene 1',
+      text: '',
+      board: { x: Math.round(x), y: Math.round(y) }
+    }
+    const chapter = {
+      id: uid(),
+      title: 'New Chapter',
+      zone: { x: Math.round(x) - 24, y: Math.round(y) - 30, w: CARD_W + 48, h: CARD_H + 56 },
+      scenes: [scene]
+    }
+    markChange()
+    setStory((prev) => ({ ...prev, chapters: [...prev.chapters, chapter] }))
+    endSession()
+    expand(chapter.id)
     selectScene(scene.id)
   }
 
@@ -737,6 +778,8 @@ function App() {
               onSelectScene={selectScene}
               onOpenInEditor={openInEditor}
               onAddScene={handleAddScene}
+              onAddSceneAt={handleAddSceneAt}
+              onAddChapterAt={handleAddChapterAt}
               commit={commit}
               patch={patch}
               endSession={endSession}

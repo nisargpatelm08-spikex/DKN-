@@ -1,13 +1,35 @@
 // Story timeline helpers — a user-built calendar of years -> months -> days,
 // plus where each scene falls on it. Pure functions on story objects.
 
-export const DAY_CELL_W = 46
+export const DAY_CELL_W = 54
 export const DAY_CELL_H = 34
 export const MONTH_H = 26
 export const HEADER_H = 32
 export const CHIP_H = 22
 export const CHIP_GAP = 3
 export const MAX_CHIPS_VISIBLE = 3
+
+// Time-of-day slots a scene can be placed in within a day.
+export const DAY_SLOTS = [
+  { id: 'dawn', label: 'Dawn', icon: '🌅' },
+  { id: 'morning', label: 'Morning', icon: '☀️' },
+  { id: 'noon', label: 'Noon', icon: '🕛' },
+  { id: 'afternoon', label: 'Afternoon', icon: '🌇' },
+  { id: 'evening', label: 'Evening', icon: '🌒' },
+  { id: 'night', label: 'Night', icon: '🌙' }
+]
+
+export const DAY_SLOT_MAP = Object.fromEntries(DAY_SLOTS.map((s) => [s.id, s]))
+
+// -1 = no time set ("any time"), a valid slot returns its position in the day.
+export function slotRank(slot) {
+  const i = DAY_SLOTS.findIndex((s) => s.id === slot)
+  return i < 0 ? -1 : i
+}
+
+export function slotIconOf(slot) {
+  return (slot && DAY_SLOT_MAP[slot] && DAY_SLOT_MAP[slot].icon) || ''
+}
 
 export function uid() {
   return crypto.randomUUID ? crypto.randomUUID() : 'id' + Math.random().toString(36).slice(2)
@@ -115,7 +137,16 @@ export function assignSceneTime(story, sceneId, time) {
       scenes: c.scenes.map((s) => {
         if (s.id !== sceneId) return s
         if (!time) return { ...s, timeline: undefined }
-        return { ...s, timeline: { yearId: time.yearId, day: time.day } }
+        // Keep an existing time-of-day slot unless the caller overrides it.
+        const prevSlot = s.timeline && s.timeline.slot
+        return {
+          ...s,
+          timeline: {
+            yearId: time.yearId,
+            day: time.day,
+            slot: time.slot !== undefined ? time.slot : prevSlot
+          }
+        }
       })
     }))
   }
@@ -129,8 +160,8 @@ export function sceneTime(story, sceneId) {
   return null
 }
 
-// Every dated scene: { scene, chapterIndex, sceneIndex, yearId, day } sorted
-// by (year order, day, chapter order).
+// Every dated scene: { scene, chapterIndex, sceneIndex, yearId, yearIndex, day, slot }
+// sorted by (year order, day, time-of-day slot, chapter order).
 export function datedScenes(story) {
   const tl = story.timeline || defaultTimeline()
   const yearIdx = new Map(tl.years.map((y, i) => [y.id, i]))
@@ -141,10 +172,17 @@ export function datedScenes(story) {
       if (!t || !yearIdx.has(t.yearId)) return
       const year = tl.years[yearIdx.get(t.yearId)]
       if (!Number.isFinite(t.day) || t.day < 0 || t.day >= totalDays(year)) return
-      out.push({ scene, chapterIndex: ci, sceneIndex: si, yearId: t.yearId, yearIndex: yearIdx.get(t.yearId), day: t.day })
+      out.push({ scene, chapterIndex: ci, sceneIndex: si, yearId: t.yearId, yearIndex: yearIdx.get(t.yearId), day: t.day, slot: t.slot })
     })
   })
-  out.sort((a, b) => a.yearIndex - b.yearIndex || a.day - b.day || a.chapterIndex - b.chapterIndex)
+  out.sort(
+    (a, b) =>
+      a.yearIndex - b.yearIndex ||
+      a.day - b.day ||
+      slotRank(a.slot) - slotRank(b.slot) ||
+      a.chapterIndex - b.chapterIndex ||
+      a.sceneIndex - b.sceneIndex
+  )
   return out
 }
 
@@ -180,7 +218,11 @@ export function layoutYears(story) {
     const stacks = new Map()
     for (let t = 0; t < total; t++) {
       const key = year.id + ':' + t
-      const list = byDay.get(key) || []
+      const list = [...(byDay.get(key) || [])].sort((a, b) => {
+        const ra = slotRank(a.scene?.timeline?.slot)
+        const rb = slotRank(b.scene?.timeline?.slot)
+        return ra - rb || a.chapterIndex - b.chapterIndex || a.sceneIndex - b.sceneIndex
+      })
       stacks.set(t, list)
       if (list.length) maxStack = Math.max(maxStack, Math.min(list.length, MAX_CHIPS_VISIBLE + 1))
     }
