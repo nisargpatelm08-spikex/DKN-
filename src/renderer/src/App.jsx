@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { sampleStory } from './data/sampleStory'
+import DrawingPad from './components/DrawingPad'
 
 const uid = () => crypto.randomUUID()
+const UNDO_LIMIT = 10
 
 // ---------- pure helpers ----------
 
@@ -94,7 +96,10 @@ function reorderScenes(story, draggedId, targetChapterId, targetIndex) {
 
   let insertIndex = targetIndex
   if (targetChapterId === draggedChapter.id && draggedIndex < targetIndex) insertIndex -= 1
-  insertIndex = Math.max(0, Math.min(insertIndex, chapters.find((c) => c.id === targetChapterId).scenes.length))
+  insertIndex = Math.max(
+    0,
+    Math.min(insertIndex, chapters.find((c) => c.id === targetChapterId).scenes.length)
+  )
 
   chapters = chapters.map((c) => {
     if (c.id !== targetChapterId) return c
@@ -113,6 +118,28 @@ function chooseAfterDelete(story, deletedFromChapterId) {
   return all.length ? all[0].id : null
 }
 
+function shrinkImage(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const MAX = 1600
+      let { width, height } = img
+      if (width > MAX || height > MAX) {
+        const scale = Math.min(MAX / width, MAX / height)
+        width = Math.round(width * scale)
+        height = Math.round(height * scale)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, width)
+      canvas.height = Math.max(1, height)
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/jpeg', 0.88))
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+
 // ---------- the app ----------
 
 function App() {
@@ -124,12 +151,55 @@ function App() {
   const [draft, setDraft] = useState('')
   const [draggedSceneId, setDraggedSceneId] = useState(null)
   const [dragOverSceneId, setDragOverSceneId] = useState(null)
+  const [history, setHistory] = useState([])
+  const [drawingSceneId, setDrawingSceneId] = useState(null)
+  const sessionRef = useRef(false)
+  const fileInputRef = useRef(null)
 
   const selected = findScene(story, selectedSceneId)
   const sceneCount = story.chapters.reduce((total, ch) => total + ch.scenes.length, 0)
 
-  const expand = (chapterId) =>
-    setExpanded((prev) => new Set([...prev, chapterId]))
+  // Keep undo limited to the last UNDO_LIMIT snapshots.
+  const pushSnapshot = () => {
+    setHistory((h) => [...h, story].slice(-UNDO_LIMIT))
+  }
+
+  // Call before any change. A run of rapid edits (typing) counts as ONE undo step.
+  const markChange = () => {
+    if (sessionRef.current) return
+    sessionRef.current = true
+    pushSnapshot()
+  }
+
+  const endSession = () => {
+    sessionRef.current = false
+  }
+
+  const undo = () => {
+    if (!history.length) return
+    const previous = history[history.length - 1]
+    setHistory((h) => h.slice(0, -1))
+    setStory(previous)
+    sessionRef.current = false
+  }
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const selectScene = (sceneId) => {
+    endSession()
+    setSelectedSceneId(sceneId)
+  }
+
+  const expand = (chapterId) => setExpanded((prev) => new Set([...prev, chapterId]))
 
   const toggleChapter = (chapterId) => {
     setExpanded((prev) => {
@@ -143,20 +213,30 @@ function App() {
   // ----- adding -----
 
   const handleAddChapter = () => {
-    const chapter = { id: uid(), title: 'New Chapter', scenes: [{ id: uid(), title: 'Scene 1', text: '' }] }
+    const chapter = {
+      id: uid(),
+      title: 'New Chapter',
+      scenes: [{ id: uid(), title: 'Scene 1', text: '' }]
+    }
+    markChange()
     setStory((prev) => ({ ...prev, chapters: [...prev.chapters, chapter] }))
+    endSession()
     expand(chapter.id)
-    setSelectedSceneId(chapter.scenes[0].id)
+    selectScene(chapter.scenes[0].id)
   }
 
   const handleAddScene = (chapterId) => {
     const scene = { id: uid(), title: 'New scene', text: '' }
+    markChange()
     setStory((prev) => ({
       ...prev,
-      chapters: prev.chapters.map((c) => (c.id === chapterId ? { ...c, scenes: [...c.scenes, scene] } : c))
+      chapters: prev.chapters.map((c) =>
+        c.id === chapterId ? { ...c, scenes: [...c.scenes, scene] } : c
+      )
     }))
+    endSession()
     expand(chapterId)
-    setSelectedSceneId(scene.id)
+    selectScene(scene.id)
   }
 
   // ----- deleting -----
@@ -165,40 +245,70 @@ function App() {
     const location = findScene(story, sceneId)
     if (!location) return
     if (!window.confirm(`Delete scene "${location.scene.title}"?`)) return
+    markChange()
     const next = deleteScene(story, sceneId)
     setStory(next)
-    setSelectedSceneId(chooseAfterDelete(next, location.chapter.id))
+    endSession()
+    selectScene(chooseAfterDelete(next, location.chapter.id))
   }
 
   const handleDeleteChapter = (chapterId) => {
     const chapter = story.chapters.find((c) => c.id === chapterId)
     if (!chapter) return
     if (!window.confirm(`Delete chapter "${chapter.title}" and all its scenes?`)) return
+    markChange()
     const next = deleteChapter(story, chapterId)
     setStory(next)
+    endSession()
     const all = next.chapters.flatMap((c) => c.scenes)
-    setSelectedSceneId(all.length ? all[0].id : null)
+    selectScene(all.length ? all[0].id : null)
   }
 
   // ----- moving -----
 
   const handleMoveChapter = (chapterId, dir) => {
-    setStory((prev) => moveChapter(prev, chapterId, dir))
+    const next = moveChapter(story, chapterId, dir)
+    if (next === story) return
+    markChange()
+    setStory(next)
+    endSession()
   }
 
   const handleMoveScene = (sceneId, dir) => {
-    setStory((prev) => moveScene(prev, sceneId, dir))
+    const next = moveScene(story, sceneId, dir)
+    if (next === story) return
+    markChange()
+    setStory(next)
+    endSession()
+  }
+
+  const handleDropOnScene = (chapterId, targetSceneId) => {
+    if (!draggedSceneId || draggedSceneId === targetSceneId) {
+      setDraggedSceneId(null)
+      setDragOverSceneId(null)
+      return
+    }
+    const chapter = story.chapters.find((c) => c.id === chapterId)
+    const targetIndex = chapter.scenes.findIndex((s) => s.id === targetSceneId)
+    const next = reorderScenes(story, draggedSceneId, chapterId, targetIndex)
+    if (next !== story) markChange()
+    setStory(next)
+    endSession()
+    setDraggedSceneId(null)
+    setDragOverSceneId(null)
   }
 
   // ----- renaming -----
 
   const startEditChapter = (chapter) => {
+    endSession()
     setEditingChapterId(chapter.id)
     setEditingSceneId(null)
     setDraft(chapter.title)
   }
 
   const startEditScene = (scene) => {
+    endSession()
     setEditingSceneId(scene.id)
     setEditingChapterId(null)
     setDraft(scene.title)
@@ -206,14 +316,17 @@ function App() {
 
   const commitRename = () => {
     const title = draft.trim()
-    if (editingChapterId) {
-      if (title) setStory((prev) => updateChapter(prev, editingChapterId, { title }))
-      setEditingChapterId(null)
+    if (editingChapterId && title) {
+      markChange()
+      setStory((prev) => updateChapter(prev, editingChapterId, { title }))
     }
-    if (editingSceneId) {
-      if (title) setStory((prev) => updateScene(prev, editingSceneId, { title }))
-      setEditingSceneId(null)
+    if (editingSceneId && title) {
+      markChange()
+      setStory((prev) => updateScene(prev, editingSceneId, { title }))
     }
+    setEditingChapterId(null)
+    setEditingSceneId(null)
+    endSession()
   }
 
   const cancelRename = () => {
@@ -226,22 +339,49 @@ function App() {
     if (e.key === 'Escape') cancelRename()
   }
 
-  // ----- drag & drop for scenes -----
+  // ----- images -----
 
-  const sceneIndexInChapter = (chapter, sceneId) => chapter.scenes.findIndex((s) => s.id === sceneId)
-
-  const handleDropOnScene = (chapterId, targetSceneId) => {
-    if (!draggedSceneId || draggedSceneId === targetSceneId) {
-      setDraggedSceneId(null)
-      setDragOverSceneId(null)
-      return
-    }
-    const chapter = story.chapters.find((c) => c.id === chapterId)
-    const targetIndex = sceneIndexInChapter(chapter, targetSceneId)
-    setStory((prev) => reorderScenes(prev, draggedSceneId, chapterId, targetIndex))
-    setDraggedSceneId(null)
-    setDragOverSceneId(null)
+  const attachImageFile = async (file) => {
+    if (!file || !file.type.startsWith('image/')) return
+    markChange()
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.readAsDataURL(file)
+    })
+    const image = await shrinkImage(dataUrl)
+    setStory(updateScene(story, selectedSceneId, { image }))
+    endSession()
   }
+
+  const handleFileInput = (e) => {
+    const file = e.target.files?.[0]
+    if (file) attachImageFile(file)
+    e.target.value = ''
+  }
+
+  const handleDropFile = (e) => {
+    e.preventDefault()
+    const file = e.dataTransfer.files?.[0]
+    if (file) attachImageFile(file)
+  }
+
+  const removeImage = () => {
+    if (!window.confirm('Remove the artwork from this scene?')) return
+    markChange()
+    setStory(updateScene(story, selectedSceneId, { image: undefined }))
+    endSession()
+  }
+
+  const saveDrawing = (dataUrl) => {
+    markChange()
+    setStory(updateScene(story, drawingSceneId, { image: dataUrl }))
+    endSession()
+    setDrawingSceneId(null)
+  }
+
+  const sceneIndexInChapter = (chapter, sceneId) =>
+    chapter.scenes.findIndex((s) => s.id === sceneId)
 
   // ---------- render ----------
 
@@ -253,6 +393,9 @@ function App() {
         <div className="story-stats">
           {story.chapters.length} chapters · {sceneCount} scenes
         </div>
+        <button className="undo-btn" disabled={!history.length} onClick={undo}>
+          ↶ Undo{history.length ? ` (${history.length})` : ''}
+        </button>
       </header>
 
       <div className="layout">
@@ -322,9 +465,11 @@ function App() {
                             'scene-item' +
                             (scene.id === selectedSceneId ? ' selected' : '') +
                             (scene.id === draggedSceneId ? ' dragging' : '') +
-                            (scene.id === dragOverSceneId && dragOverSceneId !== draggedSceneId ? ' drag-over' : '')
+                            (scene.id === dragOverSceneId && dragOverSceneId !== draggedSceneId
+                              ? ' drag-over'
+                              : '')
                           }
-                          onClick={() => setSelectedSceneId(scene.id)}
+                          onClick={() => selectScene(scene.id)}
                         >
                           <span className="scene-number">
                             {ci + 1}.{sceneIndexInChapter(chapter, scene.id) + 1}
@@ -377,26 +522,46 @@ function App() {
               <input
                 className="scene-title-input"
                 value={selected.scene.title}
-                onChange={(e) =>
+                onChange={(e) => {
+                  markChange()
                   setStory(updateScene(story, selectedSceneId, { title: e.target.value }))
-                }
+                }}
                 placeholder="Scene title"
               />
 
-              <div className="frame-strip">
-                <div className="frame-placeholder">
-                  <div className="frame-icon">🖼️</div>
-                  <div>Artwork placeholder</div>
-                  <div className="frame-hint">Uploading &amp; drawing arrive in Phase 3</div>
+              <div
+                className={'frame' + (selected.scene.image ? ' has-image' : '')}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'copy'
+                }}
+                onDrop={handleDropFile}
+              >
+                {selected.scene.image ? (
+                  <img className="frame-img" src={selected.scene.image} alt={selected.scene.title} />
+                ) : (
+                  <div className="frame-empty">
+                    <div className="frame-icon">🖼️</div>
+                    <div>No artwork yet</div>
+                    <div className="frame-hint">Upload, drop an image here, or draw</div>
+                  </div>
+                )}
+                <div className="frame-tools">
+                  <button className="frame-btn" title="Upload an image" onClick={() => fileInputRef.current?.click()}>⬆ Upload</button>
+                  <button className="frame-btn" title="Draw on this frame" onClick={() => setDrawingSceneId(selectedSceneId)}>✎ Draw</button>
+                  {selected.scene.image && (
+                    <button className="frame-btn danger" title="Remove artwork" onClick={removeImage}>✕ Remove</button>
+                  )}
                 </div>
               </div>
 
               <textarea
                 className="scene-text"
                 value={selected.scene.text}
-                onChange={(e) =>
+                onChange={(e) => {
+                  markChange()
                   setStory(updateScene(story, selectedSceneId, { text: e.target.value }))
-                }
+                }}
                 placeholder="Write your scene prose here…"
               />
             </div>
@@ -408,6 +573,22 @@ function App() {
           )}
         </main>
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={handleFileInput}
+      />
+
+      {drawingSceneId && findScene(story, drawingSceneId) && (
+        <DrawingPad
+          image={findScene(story, drawingSceneId).scene.image}
+          onSave={saveDrawing}
+          onCancel={() => setDrawingSceneId(null)}
+        />
+      )}
     </div>
   )
 }
