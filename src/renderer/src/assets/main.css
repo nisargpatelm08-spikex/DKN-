@@ -8,6 +8,8 @@
   --ink-soft: #6f6557;
   --accent: #b5651d;
   --accent-soft: #e9dcc8;
+  --danger: #8a2a17;
+  --danger-soft: #ecd9d3;
   --line: #ddd2bf;
   --serif: Georgia, 'Times New Roman', serif;
   --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -79,12 +81,31 @@ body {
 /* ---------- sidebar ---------- */
 
 .sidebar {
-  width: 270px;
+  width: 300px;
   flex-shrink: 0;
   background: var(--panel);
   border-right: 1px solid var(--line);
   overflow-y: auto;
   padding: 8px 0;
+}
+
+.add-chapter-btn {
+  margin: 8px 12px 10px;
+  width: calc(100% - 24px);
+  border: 1px dashed var(--line);
+  background: transparent;
+  border-radius: 6px;
+  padding: 7px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.add-chapter-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .chapter {
@@ -96,7 +117,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 9px 12px;
+  padding: 9px 6px 9px 12px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -115,11 +136,16 @@ body {
   width: 14px;
   color: var(--ink-soft);
   font-size: 11px;
+  flex-shrink: 0;
 }
 
 .chapter-title {
   flex: 1;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chapter-count {
@@ -128,6 +154,12 @@ body {
   color: var(--accent);
   border-radius: 10px;
   padding: 1px 7px;
+  flex-shrink: 0;
+}
+
+.chapter:hover .row-actions,
+.chapter .row-actions:focus-within {
+  opacity: 1;
 }
 
 .scenes {
@@ -140,8 +172,8 @@ body {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px 6px 30px;
+  gap: 6px;
+  padding: 6px 6px 6px 30px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -171,12 +203,95 @@ body {
   flex-shrink: 0;
 }
 
+.scene-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.scene-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-item:hover .row-actions,
+.scene-item .row-actions:focus-within {
+  opacity: 1;
+}
+
+/* ---------- row actions & icon buttons ---------- */
+
+.row-actions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-soft);
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.icon-btn.danger:hover,
+.tonal-btn.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.rename-input {
+  font-family: inherit;
+  font-size: inherit;
+  width: 100%;
+  border: 1px solid var(--accent);
+  background: white;
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+}
+
+/* drag & drop */
+
+.scene-item.dragging {
+  opacity: 0.4;
+}
+
+li:has(.scene-item.drag-over) {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
 /* ---------- editor ---------- */
 
 .editor {
   flex: 1;
   overflow-y: auto;
-  padding: 28px 36px 60px;
+  padding: 24px 36px 60px;
 }
 
 .editor-inner {
@@ -184,7 +299,13 @@ body {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .editor-path {
@@ -192,6 +313,26 @@ body {
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--ink-soft);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.tonal-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.tonal-btn:hover {
+  background: var(--panel-2);
+  border-color: var(--accent);
 }
 
 .scene-title-input {
