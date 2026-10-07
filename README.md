@@ -1,4 +1,6 @@
-# dkn
+# DKN-
+
+From story writing to its completion
 
 An Electron application with React
 
