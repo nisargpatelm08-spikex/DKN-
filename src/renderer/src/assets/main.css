@@ -1036,6 +1036,10 @@ li:has(.scene-item.drag-over) {
   top: 0;
   pointer-events: none;
   overflow: visible;
+  /* Threads paint above scene cards so the whole negative → positive run is
+     always visible, even where cards sit between two wired scenes. The svg
+     itself stays click-transparent (pointer-events: none). */
+  z-index: 10;
 }
 
 .board-link {

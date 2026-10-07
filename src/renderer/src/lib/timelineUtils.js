@@ -200,7 +200,12 @@ export const YEAR_GAP = 70
 
 // World-coordinate layout of the whole calendar.
 export function layoutYears(story) {
-  const tl = story.timeline || defaultTimeline()
+  // A story may have a timeline object with links but no years yet (or none
+  // at all) — always fall back to a usable default calendar.
+  const tl =
+    story.timeline && Array.isArray(story.timeline.years) && story.timeline.years.length
+      ? story.timeline
+      : defaultTimeline()
   const byDay = new Map()
   story.chapters.forEach((chapter, ci) => {
     chapter.scenes.forEach((scene, si) => {
@@ -293,10 +298,12 @@ export function addTimelineLink(story, fromSceneId, toSceneId) {
   if (!fromSceneId || !toSceneId || fromSceneId === toSceneId) return story
   const links = story.timeline?.links || []
   if (links.some((l) => l.fromSceneId === fromSceneId && l.toSceneId === toSceneId)) return story
+  const hasYears = Array.isArray(story.timeline?.years) && story.timeline.years.length
   return {
     ...story,
     timeline: {
       ...(story.timeline || {}),
+      ...(hasYears ? {} : { years: defaultTimeline().years }),
       links: [...links, { id: uid(), fromSceneId, toSceneId }]
     }
   }

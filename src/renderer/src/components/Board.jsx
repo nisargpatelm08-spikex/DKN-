@@ -116,7 +116,7 @@ export default function Board({
       })
     })
     return { chapters, links, portLookup }
-  }, [story, prefs])
+  }, [story, threadCurve])
 
   const allPorts = useMemo(
     () => board.chapters.flatMap((c) => c.scenes.flatMap((sc) => sc.ports)),

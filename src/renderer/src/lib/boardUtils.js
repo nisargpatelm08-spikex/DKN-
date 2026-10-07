@@ -8,6 +8,8 @@
 //   • Storyline wires live in story.board.links; the Timeline's actual-story
 //     wires live in story.timeline.links — both saved in the .dknproj file.
 
+import { defaultTimeline } from './timelineUtils'
+
 export const CARD_W = 200
 export const CARD_H = 122
 export const GAP_X = 26
@@ -164,6 +166,7 @@ function threadCtrlPoints(from, to, bend, curve) {
   const curving = clamp01(curve ?? 0.5)
 
   let c1, c2
+  let handle = 0
   if (curving === 0) {
     // Straight wire: control points land at 1/3 and 2/3 of the way across.
     const dx = to.x - from.x
@@ -182,7 +185,7 @@ function threadCtrlPoints(from, to, bend, curve) {
     // Blender: handle_offset = curving * 0.1 * dist_x * clamp_factor. A small
     // floor keeps even tiny wires gently bowed — a wire never becomes a
     // paper-thin hard line.
-    const handle = Math.max(14, curving * 0.1 * distAlong * clampFactor)
+    handle = Math.max(14, curving * 0.1 * distAlong * clampFactor)
     c1 = { x: from.x + n1.x * handle, y: from.y + n1.y * handle }
     c2 = { x: to.x + n2.x * handle, y: to.y + n2.y * handle }
   }
@@ -199,6 +202,27 @@ function threadCtrlPoints(from, to, bend, curve) {
     c1.y += py * bend
     c2.x += px * bend
     c2.y += py * bend
+  }
+
+  // Congested wires: when the two ports sit almost on top of each other
+  // (e.g. two neighbouring timeline chips a few pixels apart) the handles
+  // cross over and the thread collapses into a dot or a tiny loop. Bow both
+  // control points out perpendicular to the run so the negative → positive
+  // arc stays readable as a whole thread instead of a small blob/anchor.
+  const span = Math.hypot(to.x - from.x, to.y - from.y)
+  const minSpan = Math.max(14, handle) * 1.7
+  if (span > 0 && span < minSpan) {
+    const tx = to.x - from.x
+    const ty = to.y - from.y
+    const px = -ty / span
+    const py = tx / span
+    // Prefer bowing upwards (screen -y) when nearly horizontal.
+    const flip = py > 0 ? -1 : 1
+    const bow = ((minSpan - span) / minSpan) * handle * 1.35 * flip
+    c1.x += px * bow
+    c1.y += py * bow
+    c2.x += px * bow
+    c2.y += py * bow
   }
   return { c1, c2 }
 }
@@ -465,10 +489,11 @@ export function pruneLinksForScene(story, sceneId) {
   const keepT = (story.timeline?.links || []).filter(
     (l) => l.fromSceneId !== sceneId && l.toSceneId !== sceneId
   )
+  const timeline = story.timeline && { ...story.timeline, links: keepT }
   return {
     ...story,
     board: { ...(story.board || {}), links: keepB },
-    timeline: { ...(story.timeline || {}), links: keepT }
+    timeline
   }
 }
 
@@ -496,7 +521,16 @@ export function upgradeBoard(story) {
         return { ...scn, board }
       })
     })),
-    timeline: { ...(story.timeline || {}), links: [...(story.timeline?.links || [])] }
+    timeline: story.timeline
+      ? {
+          ...story.timeline,
+          years:
+            Array.isArray(story.timeline.years) && story.timeline.years.length
+              ? story.timeline.years
+              : defaultTimeline().years,
+          links: [...(story.timeline?.links || [])]
+        }
+      : undefined
   }
 
   // Re-create old plug wires as polarity wires.
@@ -556,10 +590,11 @@ export function sanitizeBoard(story) {
       findSceneLoc(upgraded, l.fromSceneId) &&
       findSceneLoc(upgraded, l.toSceneId)
   )
+  const timeline = upgraded.timeline && { ...upgraded.timeline, links: tlLinks }
   return {
     ...upgraded,
     board: { ...(upgraded.board || {}), links },
-    timeline: { ...(upgraded.timeline || {}), links: tlLinks }
+    timeline
   }
 }
 
