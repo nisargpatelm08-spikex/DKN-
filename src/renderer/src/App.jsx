@@ -3,6 +3,8 @@ import { sampleStory } from './data/sampleStory'
 import DrawingPad from './components/DrawingPad'
 import Board from './components/Board'
 import Timeline from './components/Timeline'
+import LangMixBar from './components/LangMixBar'
+import TranslatePanel from './components/TranslatePanel'
 import { buildPrintHtml } from './lib/printHtml'
 import { pruneLinksForScene, sanitizeBoard, CARD_W, CARD_H } from './lib/boardUtils'
 
@@ -149,6 +151,7 @@ function shrinkImage(dataUrl) {
 function App() {
   const [story, setStory] = useState(() => sanitizeBoard(sampleStory))
   const [selectedSceneId, setSelectedSceneId] = useState(sampleStory.chapters[0].scenes[0].id)
+  const [translating, setTranslating] = useState(false)
   const [expanded, setExpanded] = useState(() => new Set(sampleStory.chapters.map((c) => c.id)))
   const [editingChapterId, setEditingChapterId] = useState(null)
   const [editingSceneId, setEditingSceneId] = useState(null)
@@ -564,6 +567,40 @@ function App() {
     setDrawingSceneId(null)
   }
 
+  // ----- translation -----
+
+  // Apply the translated prose to the current scene (one undo step).
+  const applySceneTranslation = (text) => {
+    if (typeof text !== 'string' || text === selected.scene.text) return
+    markChange()
+    setStory(updateScene(story, selectedSceneId, { text }))
+    endSession()
+    setStatus('Translation applied to this scene')
+  }
+
+  // Apply a whole-story translation map { sceneId: { text?, title? } }.
+  const applyStoryTranslations = (map) => {
+    if (!map || !Object.keys(map).length) return
+    markChange()
+    setStory((prev) => ({
+      ...prev,
+      chapters: prev.chapters.map((c) => ({
+        ...c,
+        scenes: c.scenes.map((s) => {
+          const u = map[s.id]
+          if (!u) return s
+          return {
+            ...s,
+            ...(u.text !== undefined ? { text: u.text } : {}),
+            ...(u.title !== undefined ? { title: u.title } : {})
+          }
+        })
+      }))
+    }))
+    endSession()
+    setStatus('Whole story translated')
+  }
+
   const sceneIndexInChapter = (chapter, sceneId) =>
     chapter.scenes.findIndex((s) => s.id === sceneId)
 
@@ -793,6 +830,13 @@ function App() {
                   <span className="toolbar-spacer" />
                   <button
                     className="tonal-btn"
+                    title="Translate this scene to another language (supports Hindi + English mix)"
+                    onClick={() => setTranslating(true)}
+                  >
+                    🌐 Translate
+                  </button>
+                  <button
+                    className="tonal-btn"
                     title="Add a scene to this chapter"
                     onClick={() => handleAddScene(selected.chapter.id)}
                   >
@@ -888,6 +932,8 @@ function App() {
                   }}
                   placeholder="Write your scene prose here…"
                 />
+
+                <LangMixBar text={selected.scene.text} onOpen={() => setTranslating(true)} />
               </div>
             ) : (
               <div className="empty-state">
@@ -931,6 +977,16 @@ function App() {
           image={findScene(story, drawingSceneId).scene.image}
           onSave={saveDrawing}
           onCancel={() => setDrawingSceneId(null)}
+        />
+      )}
+
+      {translating && selected && (
+        <TranslatePanel
+          sourceText={selected.scene.text}
+          story={story}
+          onApply={applySceneTranslation}
+          onApplyStory={applyStoryTranslations}
+          onClose={() => setTranslating(false)}
         />
       )}
     </div>

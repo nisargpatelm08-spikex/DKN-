@@ -95,6 +95,43 @@ app.whenReady().then(() => {
     }
   })
 
+  // Free web translation (used by the in-app Translate tool). Routed through
+  // the main process because the renderer's CSP only allows same-origin loads.
+  ipcMain.handle('dkn:translate', async (_event, payload) => {
+    const { q, from = 'auto', to = 'en' } = payload || {}
+    if (typeof q !== 'string' || !q.trim()) throw new Error('Nothing to translate')
+    const url =
+      'https://translate.googleapis.com/translate_a/single?client=gtx&sl=' +
+      encodeURIComponent(from) +
+      '&tl=' +
+      encodeURIComponent(to) +
+      '&dt=t&q=' +
+      encodeURIComponent(q)
+    let res
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(20000) })
+    } catch {
+      throw new Error(
+        'Cannot reach the translation service. Check your internet connection and try again.'
+      )
+    }
+    if (!res.ok) {
+      throw new Error('Translation service error (' + res.status + '). Please try again shortly.')
+    }
+    let data
+    try {
+      data = await res.json()
+    } catch {
+      throw new Error('The translation service returned an unreadable reply.')
+    }
+    const text = ((data && data[0]) || []).map((seg) => (seg && seg[0]) || '').join('')
+    return {
+      text,
+      detected: data && data[2] ? data[2] : null,
+      detectedScript: data && data[8] && data[8][3] ? data[8][3][0] : null
+    }
+  })
+
   ipcMain.handle('dkn:exportPdf', async (_event, { html, title }) => {
     const result = await dialog.showSaveDialog({
       title: 'Export as PDF',
