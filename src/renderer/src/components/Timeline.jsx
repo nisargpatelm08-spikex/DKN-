@@ -4,6 +4,7 @@ import * as T from '../lib/timelineUtils'
 import * as B from '../lib/boardUtils'
 import { getPrefs, savePrefs, PREFS_DEFAULTS } from '../lib/prefs'
 import { useCanvasView, useViewportSize, useWheelZoom } from '../lib/canvasView'
+import SceneWhen from './SceneWhen'
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
@@ -85,8 +86,14 @@ YearEditor.propTypes = {
   onDelete: PropTypes.func.isRequired
 }
 
+// The Timeline: every dated scene sits left → right in time order (evenly
+// spaced) inside coloured chapter bands. Wires flow NEGATIVE (right dot) →
+// POSITIVE (left dot) and each one shows the time gap between its scenes.
+// Cards, dots and wires all share ONE coordinate system (the world div), so
+// wire ends always sit exactly on the dots.
 export default function Timeline({
   story,
+  selectedSceneId,
   onSelectScene,
   onOpenInEditor,
   patch,
@@ -97,19 +104,17 @@ export default function Timeline({
   const vpRect = useViewportSize(viewportRef)
   const { view, setView, toWorld, toScreen, zoomAt, zoomBy, fitBounds } = useCanvasView(viewportRef)
   const [setupOpen, setSetupOpen] = useState(false)
-  const [dayPanel, setDayPanel] = useState(null) // { yearId, day }
-  const [chipDrag, setChipDrag] = useState(null) // { sceneId, startClient, moved }
   const [drag, setDrag] = useState(null)
   const [sensOpen, setSensOpen] = useState(false)
   const [prefs, setPrefsState] = useState(getPrefs)
   const prefsRef = useRef(prefs)
-  // Actual-story wires: dragging from a chip's − port into another chip's +
-  // port connects them in time order (flow negative → positive).
-  const [tlLinkDrag, setTlLinkDrag] = useState(null)
-  const [selectedTlLinkId, setSelectedTlLinkId] = useState(null)
+  const [whenSceneId, setWhenSceneId] = useState(null) // date popover
+  const [linkDrag, setLinkDrag] = useState(null) // wire being dragged
+  const [selectedLinkId, setSelectedLinkId] = useState(null)
+  const [chaptersOpen, setChaptersOpen] = useState(true)
 
-  const changePrefs = (patch) => {
-    const next = { ...prefsRef.current, ...patch }
+  const changePrefs = (patchData) => {
+    const next = { ...prefsRef.current, ...patchData }
     prefsRef.current = next
     setPrefsState(next)
     savePrefs(next)
@@ -132,21 +137,23 @@ export default function Timeline({
       setView((v) => ({ ...v, tx: v.tx - e.deltaX * p.panSpeed, ty: v.ty - e.deltaY * p.panSpeed }))
   })
 
-  const layout = T.layoutYears(story)
+  const layout = T.layoutFlow(story)
+  const cal = layout.cal
+  const spans = T.chapterSpans(story)
 
   useEffect(() => {
-    fitBounds(T.boundsOfTimeline(story))
+    fitBounds(T.boundsOfFlow(story))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        setDayPanel(null)
         setSetupOpen(false)
         setSensOpen(false)
-        setSelectedTlLinkId(null)
-        setTlLinkDrag(null)
+        setSelectedLinkId(null)
+        setLinkDrag(null)
+        setWhenSceneId(null)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -157,294 +164,121 @@ export default function Timeline({
 
   const onViewportPointerDown = (e) => {
     if (e.button !== 0) return
-    setDrag({ kind: 'pan', startX: e.clientX, startY: e.clientY, tx: view.tx, ty: view.ty })
+    setDrag({ startX: e.clientX, startY: e.clientY, tx: view.tx, ty: view.ty })
     e.currentTarget.setPointerCapture(e.pointerId)
-    setDayPanel(null)
-    setSelectedTlLinkId(null)
+    setSelectedLinkId(null)
+    setWhenSceneId(null)
   }
 
   const onViewportPointerMove = (e) => {
-    const d = drag
-    if (d && d.kind === 'pan') {
-      setView((v) => ({
-        ...v,
-        tx: d.tx + (e.clientX - d.startX),
-        ty: d.ty + (e.clientY - d.startY)
-      }))
-    }
+    if (!drag) return
+    setView((v) => ({
+      ...v,
+      tx: drag.tx + (e.clientX - drag.startX),
+      ty: drag.ty + (e.clientY - drag.startY)
+    }))
   }
 
-  const onViewportPointerUp = () => {
-    setDrag((d) => (d && d.kind === 'pan' ? null : d))
-  }
+  const onViewportPointerUp = () => setDrag(null)
 
-  // ---------- scene chip drag (move a scene to another day) ----------
+  // ---------- wires: drag from a − or ＋ dot into the opposite dot ----------
 
-  const onChipPointerDown = (e, sceneId) => {
-    e.stopPropagation()
-    if (e.button !== 0) return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    setSelectedTlLinkId(null)
-    setChipDrag({ sceneId, startClient: { x: e.clientX, y: e.clientY }, moved: false })
-  }
-
-  const onChipPointerMove = (e, sceneId) => {
-    const d = chipDrag
-    if (!d || d.sceneId !== sceneId) return
-    const dist = Math.abs(e.clientX - d.startClient.x) + Math.abs(e.clientY - d.startClient.y)
-    if (dist > 4) {
-      setChipDrag((prev) => (prev && prev.sceneId === sceneId ? { ...prev, moved: true } : prev))
-    }
-  }
-
-  const onChipPointerUp = (e, sceneId) => {
-    const d = chipDrag
-    if (!d || d.sceneId !== sceneId) return
-    setChipDrag(null)
-    if (!d.moved) return
-    const w = toWorld(e.clientX, e.clientY)
-    const hit = T.dayAt(layout, w.x, w.y)
-    if (hit) {
-      const loc = B.findSceneLoc(story, sceneId)
-      const current = loc?.scene.timeline
-      const sameDay = current && current.yearId === hit.yearId && current.day === hit.day
-      if (!sameDay) {
-        patch((s) => T.assignSceneTime(s, sceneId, { yearId: hit.yearId, day: hit.day }))
-      }
-    }
-    endSession()
-  }
-
-  // ---------- actual-story wires (drag from a chip's − or ＋ port) ----------
-
-  const onDotPointerDown = (e, item, pole) => {
+  const onDotPointerDown = (e, card, pole) => {
     e.stopPropagation()
     e.preventDefault()
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
-    setSelectedTlLinkId(null)
-    setDayPanel(null)
-    const rect = chipRects.get(item.scene.id)
-    if (!rect) return
-    const ax = pole === 'neg' ? rect.left + rect.width : rect.left
-    const ay = rect.top + rect.height / 2
-    setTlLinkDrag({
-      fromSceneId: item.scene.id,
-      fromPole: pole,
-      fromX: ax,
-      fromY: ay,
-      worldX: ax,
-      worldY: ay,
-      snap: null
-    })
+    setSelectedLinkId(null)
+    setWhenSceneId(null)
+    const p = T.flowPort(card, pole)
+    setLinkDrag({ fromSceneId: card.scene.id, fromPole: pole, from: p, to: p, snap: null })
   }
 
   const onDotPointerMove = (e) => {
-    const d = tlLinkDrag
-    if (!d) return
+    if (!linkDrag) return
     const w = toWorld(e.clientX, e.clientY)
-    const snapT = 30 / view.scale
+    const want = linkDrag.fromPole === 'neg' ? 'pos' : 'neg'
+    const snapT = 34 / view.scale
     let snap = null
-    for (const [sceneId, rect] of chipRects) {
-      if (sceneId === d.fromSceneId) continue
-      for (const probe of [portOfRect(rect, 'pos'), portOfRect(rect, 'neg')]) {
-        const dist = Math.hypot(probe.x - w.x, probe.y - w.y)
-        if (dist < snapT && (!snap || dist < snap.dist)) snap = { sceneId, ...probe, dist }
+    for (const card of layout.cards) {
+      if (card.scene.id === linkDrag.fromSceneId) continue
+      const p = T.flowPort(card, want)
+      const dist = Math.hypot(p.x - w.x, p.y - w.y)
+      // Also accept a drop anywhere on the card body.
+      const onCard =
+        w.x >= card.x && w.x <= card.x + card.w && w.y >= card.y && w.y <= card.y + card.h
+      const score = onCard ? Math.min(dist, snapT * 0.5) : dist
+      if (score < snapT && (!snap || score < snap.score)) {
+        snap = { sceneId: card.scene.id, x: p.x, y: p.y, score }
       }
     }
-    setTlLinkDrag((prev) => (prev ? { ...prev, worldX: w.x, worldY: w.y, snap } : prev))
+    setLinkDrag((d) => (d ? { ...d, to: snap ? { x: snap.x, y: snap.y } : w, snap } : d))
   }
 
   const onDotPointerUp = () => {
-    const d = tlLinkDrag
-    if (!d) return
-    setTlLinkDrag(null)
-    if (!d.snap || d.snap.sceneId === d.fromSceneId || d.snap.pole === d.fromPole) return
+    const d = linkDrag
+    setLinkDrag(null)
+    if (!d || !d.snap) return
     // Flow is always negative → positive.
-    const negSceneId = d.fromPole === 'neg' ? d.fromSceneId : d.snap.sceneId
-    const posSceneId = d.fromPole === 'neg' ? d.snap.sceneId : d.fromSceneId
-    commit((s) => T.addTimelineLink(s, negSceneId, posSceneId))
+    const negId = d.fromPole === 'neg' ? d.fromSceneId : d.snap.sceneId
+    const posId = d.fromPole === 'neg' ? d.snap.sceneId : d.fromSceneId
+    commit((s) => T.addTimelineLink(s, negId, posId))
   }
 
-  // ---------- derived scene lists ----------
+  // ---------- derived wires ----------
 
-  const allScenes = []
-  story.chapters.forEach((ch, ci) =>
-    ch.scenes.forEach((sc, si) => allScenes.push({ scene: sc, chapterIndex: ci, sceneIndex: si }))
-  )
-  // Valid (year:day) slots that actually exist in the current calendar.
-  const validSlots = new Set()
-  layout.years.forEach((band) =>
-    band.cells.forEach((cell) => validSlots.add(band.id + ':' + cell.t))
-  )
-  const unassigned = []
-  allScenes.forEach((item) => {
-    const t = item.scene.timeline
-    if (!t || !validSlots.has(t.yearId + ':' + t.day)) unassigned.push(item)
+  const wireType = B.PLUG_TYPE_MAP.timeorder || B.PLUG_TYPE_MAP[B.DEFAULT_LINK_TYPE]
+  const wireColor = wireType.color
+  const backColor = '#e8873c' // flashbacks get a warm colour so they stand out
+  const dim = clamp((view.scale - 0.45) / 0.55, 0.45, 1)
+
+  const wires = (story.timeline?.links || []).flatMap((link) => {
+    const a = layout.cardById.get(link.fromSceneId)
+    const b = layout.cardById.get(link.toSceneId)
+    if (!a || !b) return []
+    const from = T.flowPort(a, 'neg')
+    const to = T.flowPort(b, 'pos')
+    const { d, c1, c2 } = T.flowWirePath(from, to)
+    const mid = T.cubicPoint(from, c1, c2, to, 0.5)
+    const gap = T.gapBetween(cal, a.scene.timeline, b.scene.timeline)
+    return [
+      {
+        link,
+        a,
+        b,
+        from,
+        to,
+        d,
+        mid,
+        gap,
+        color: gap && gap.backwards ? backColor : wireColor
+      }
+    ]
   })
 
-  const dayScenes = (band, t) => {
-    const list = band.stacks.get(t) || []
-    return list.map((item) => ({
-      ...item,
-      color: B.zoneColor(item.chapterIndex),
-      num: `${item.chapterIndex + 1}.${item.sceneIndex + 1}`,
-      slot: item.scene.timeline?.slot,
-      slotIcon: T.slotIconOf(item.scene.timeline?.slot)
-    }))
-  }
-
-  const timelineYears = layout.years
-  const unschedY = layout.height + 60
-
-  // ---------- actual-story wires (derived geometry) ----------
-
-  // World rect of every scene's chip (scheduled lanes first, then the
-  // unscheduled strip) — used to draw the wires and their − / ＋ ports.
-  const chipRects = (() => {
-    const rects = new Map()
-    layout.years.forEach((band) => {
-      band.cells.forEach((cell) => {
-        const list = band.stacks.get(cell.t) || []
-        list.forEach((item, i) => {
-          if (i >= T.MAX_CHIPS_VISIBLE) return
-          if (rects.has(item.scene.id)) return
-          rects.set(item.scene.id, {
-            left: band.x + cell.x + 3,
-            top: band.chipLaneTop + i * (T.CHIP_H + T.CHIP_GAP),
-            width: T.DAY_CELL_W - 6,
-            height: T.CHIP_H
-          })
-        })
-      })
-    })
-    unassigned.forEach((item, k) => {
-      if (rects.has(item.scene.id)) return
-      rects.set(item.scene.id, {
-        left: (k % 10) * 158,
-        top: unschedY + 34 + Math.floor(k / 10) * 28,
-        width: 150,
-        height: 22
-      })
-    })
-    return rects
-  })()
-
-  // Negative port sits on the chip's right edge, positive on its left edge.
-  const portOfRect = (rect, pole) => ({
-    pole,
-    x: pole === 'neg' ? rect.left + rect.width : rect.left,
-    y: rect.top + rect.height / 2
-  })
-
-  const anchorOf = (sceneId, pole) => {
-    const rect = chipRects.get(sceneId)
-    if (!rect) return null
-    return { sceneId, ...portOfRect(rect, pole) }
-  }
-
-  const tlWireType = B.PLUG_TYPE_MAP.timeorder || B.PLUG_TYPE_MAP[B.DEFAULT_LINK_TYPE]
-  const tlWireColor = tlWireType.color
-
-  const tlWires = (() => {
-    const curve = (prefs.threadCurve ?? PREFS_DEFAULTS.threadCurve) / 100
-    return (story.timeline?.links || []).flatMap((link) => {
-      const from = anchorOf(link.fromSceneId, 'neg')
-      const to = anchorOf(link.toSceneId, 'pos')
-      if (!from || !to) return []
-      const d = B.linkPath(
-        { x: from.x, y: from.y, side: 'right' },
-        { x: to.x, y: to.y, side: 'left' },
-        0,
-        curve
-      )
-      return [{ link, d, type: tlWireType }]
-    })
-  })()
-
-  const tlGhostPath = tlLinkDrag
-    ? B.linkPath(
-        {
-          x: tlLinkDrag.fromX,
-          y: tlLinkDrag.fromY,
-          side: tlLinkDrag.fromPole === 'neg' ? 'right' : 'left'
-        },
-        {
-          x: tlLinkDrag.worldX,
-          y: tlLinkDrag.worldY,
-          side: tlLinkDrag.fromPole === 'neg' ? 'left' : 'right'
-        },
-        0,
-        (prefs.threadCurve ?? PREFS_DEFAULTS.threadCurve) / 100
-      )
+  const ghost = linkDrag
+    ? (() => {
+        const neg = linkDrag.fromPole === 'neg'
+        const from = neg ? linkDrag.from : linkDrag.to
+        const to = neg ? linkDrag.to : linkDrag.from
+        return T.flowWirePath(from, to).d
+      })()
     : ''
 
-  const tlDim = clamp((view.scale - 0.45) / 0.55, 0.35, 1)
+  const selectedWire = wires.find((w) => w.link.id === selectedLinkId) || null
+  const whenCard = whenSceneId ? layout.cardById.get(whenSceneId) : null
 
-  const tlSelected = (() => {
-    const link = (story.timeline?.links || []).find((l) => l.id === selectedTlLinkId)
-    if (!link) return null
-    const from = anchorOf(link.fromSceneId, 'neg')
-    const to = anchorOf(link.toSceneId, 'pos')
-    if (!from || !to) return null
-    const curve = (prefs.threadCurve ?? PREFS_DEFAULTS.threadCurve) / 100
+  const popAt = (wx, wy, w, h) => {
+    const s = toScreen(wx, wy)
     return {
-      link,
-      fromTitle: B.findSceneLoc(story, link.fromSceneId)?.scene.title || 'Scene',
-      toTitle: B.findSceneLoc(story, link.toSceneId)?.scene.title || 'Scene',
-      mid: B.midOf(
-        { x: from.x, y: from.y, side: 'right' },
-        { x: to.x, y: to.y, side: 'left' },
-        0,
-        curve
-      )
-    }
-  })()
-
-  // ---------- day panel ----------
-
-  let dayPopLeft = 40
-  let dayPopTop = 40
-  if (dayPanel) {
-    const band = timelineYears.find((b) => b.id === dayPanel.yearId)
-    const cell = band ? band.cells.find((c) => c.t === dayPanel.day) : null
-    if (band && cell) {
-      const s = toScreen(band.x + cell.x + T.DAY_CELL_W / 2, band.cellTop + T.DAY_CELL_H / 2)
-      dayPopLeft = clamp(s.x + 16, 8, Math.max(8, vpRect.width - 340))
-      dayPopTop = clamp(s.y, 8, Math.max(8, vpRect.height - 360))
-    }
-  }
-  const dayPanelScenes = dayPanel
-    ? (timelineYears.find((b) => b.id === dayPanel.yearId)?.stacks.get(dayPanel.day) || []).map(
-        (item) => ({
-          ...item,
-          color: B.zoneColor(item.chapterIndex),
-          num: `${item.chapterIndex + 1}.${item.sceneIndex + 1}`,
-          slot: item.scene.timeline?.slot
-        })
-      )
-    : []
-
-  let dayPanelYear = null
-  if (dayPanel) {
-    const band = timelineYears.find((b) => b.id === dayPanel.yearId)
-    if (band) {
-      const { month } = T.splitDay(band.year, dayPanel.day)
-      dayPanelYear = {
-        yearLabel: band.year.label,
-        monthLabel: T.monthName(band.year, month),
-        dayLabel: T.dayLabel(band.year, dayPanel.day)
-      }
+      left: clamp(s.x + 14, 8, Math.max(8, vpRect.width - w - 8)),
+      top: clamp(s.y - 10, 8, Math.max(8, vpRect.height - h - 8))
     }
   }
 
-  let tlPopLeft = 40
-  let tlPopTop = 40
-  if (tlSelected) {
-    const s = toScreen(tlSelected.mid.x, tlSelected.mid.y)
-    tlPopLeft = clamp(s.x + 14, 8, Math.max(8, vpRect.width - 260))
-    tlPopTop = clamp(s.y - 20, 8, Math.max(8, vpRect.height - 220))
-  }
+  const trackLineY = T.FLOW_TRACK_Y + T.FLOW_CARD_H / 2
+  const datedCards = layout.cards.filter((c) => c.dated)
+  const undatedCards = layout.cards.filter((c) => !c.dated)
 
   return (
     <div className="board">
@@ -455,9 +289,24 @@ export default function Timeline({
         <button
           className="board-tool-btn"
           onClick={() => setSetupOpen(true)}
-          title="Build your calendar from scratch"
+          title="Build your calendar: years, months, days and month names"
         >
           ⚙ Setup calendar
+        </button>
+        <button
+          className="board-tool-btn"
+          onClick={() => commit((s) => T.autoConnectTimeOrder(s))}
+          title="Wire every dated scene to the next one in time order"
+          disabled={layout.datedCount < 2}
+        >
+          ⇢ Connect in time order
+        </button>
+        <button
+          className={'board-tool-btn' + (chaptersOpen ? ' active' : '')}
+          onClick={() => setChaptersOpen((o) => !o)}
+          title="Show each chapter's time span and the gap to the next chapter"
+        >
+          ⏳ Chapter gaps
         </button>
         <span className="board-sep" />
         <button className="board-tool-btn" onClick={() => zoomBy(1 / 1.25)} title="Zoom out">
@@ -469,7 +318,7 @@ export default function Timeline({
         </button>
         <button
           className="board-tool-btn"
-          onClick={() => fitBounds(T.boundsOfTimeline(story))}
+          onClick={() => fitBounds(T.boundsOfFlow(story))}
           title="Fit"
         >
           ⛶ Fit
@@ -478,7 +327,7 @@ export default function Timeline({
         <button
           className={'board-tool-btn' + (sensOpen ? ' active' : '')}
           onClick={() => setSensOpen((o) => !o)}
-          title="Board & timeline settings — scrolling, zooming and thread looks"
+          title="Board & timeline settings — scrolling and zooming"
         >
           ⚙ Settings
         </button>
@@ -537,8 +386,8 @@ export default function Timeline({
             />
           </div>
           <div className="pop-hint">
-            Lower = gentler. Thread bend makes the lines between plugs more or less curvy — like a
-            loose thread at high %, straight at 0%. Remembered on this computer.
+            Thread bend makes the Board&apos;s lines more or less curvy. Remembered on this
+            computer.
           </div>
           <button className="board-tool-btn" onClick={resetPrefs}>
             Reset to default
@@ -556,396 +405,348 @@ export default function Timeline({
       >
         <div
           className="tl-world board-world"
-          style={{
-            transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`
-          }}
+          style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` }}
         >
-          {timelineYears.map((band) => (
-            <div
-              key={'tly-' + band.id}
-              className="tl-year"
-              style={{ left: band.x, top: band.y, width: band.width, height: band.height }}
-            >
-              <div className="tl-year-head">
-                <span className="tl-year-label">{band.year.label}</span>
-                <span className="tl-year-sub">
-                  {T.monthCount(band.year)} months · {T.totalDays(band.year)} days
+          {/* chapter bands behind the cards */}
+          {layout.bands.map((band, i) => {
+            const color = B.zoneColor(band.chapterIndex)
+            return (
+              <div
+                key={'band-' + i}
+                className="tlx-band"
+                style={{
+                  left: band.x1 - 16,
+                  top: T.FLOW_TRACK_Y - 46,
+                  width: band.x2 - band.x1 + 32,
+                  height: T.FLOW_CARD_H + 62,
+                  background: B.hexToRgba(color, 0.1),
+                  borderColor: B.hexToRgba(color, 0.45)
+                }}
+              >
+                <span className="tlx-band-title" style={{ color }}>
+                  Ch {band.chapterIndex + 1} · {band.chapter.title}
                 </span>
               </div>
+            )
+          })}
 
-              {/* month chips */}
-              {Array.from({ length: T.monthCount(band.year) }, (_, m) => (
-                <div
-                  key={'tlmo-' + band.id + '-' + m}
-                  className="tl-month-chip"
-                  style={{
-                    left: T.TL_PAD_X + 2 + m * T.dayCount(band.year) * T.DAY_CELL_W,
-                    top: T.HEADER_H + 4,
-                    width: T.dayCount(band.year) * T.DAY_CELL_W - 4
-                  }}
-                >
-                  {T.monthName(band.year, m)}
-                </div>
-              ))}
-
-              {/* day cells */}
-              {band.cells.map((cell) => {
-                const { day } = T.splitDay(band.year, cell.t)
-                const list = dayScenes(band, cell.t)
-                return (
-                  <div
-                    key={'tld-' + band.id + '-' + cell.t}
-                    className="tl-day"
-                    style={{
-                      left: band.x + cell.x + 2,
-                      top: band.cellTop + 2,
-                      width: T.DAY_CELL_W - 4,
-                      height: T.DAY_CELL_H - 4
-                    }}
-                    title={'Day ' + day}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setDayPanel({ yearId: band.id, day: cell.t })
-                    }}
-                  >
-                    {day}
-                    {list.length > 0 && <span className="tl-day-dot" />}
-                  </div>
+          {/* the time axis */}
+          {datedCards.length > 0 && (
+            <div
+              className="tlx-axis"
+              style={{
+                left: T.FLOW_PAD_X - 30,
+                top: trackLineY,
+                width: Math.max(
+                  0,
+                  datedCards[datedCards.length - 1].x + T.FLOW_CARD_W - T.FLOW_PAD_X + 60
                 )
-              })}
+              }}
+            />
+          )}
 
-              {/* scene chips under each day */}
-              {band.cells.map((cell) => {
-                const list = dayScenes(band, cell.t)
-                return list.map((item, i) => {
-                  if (i >= T.MAX_CHIPS_VISIBLE) return null
-                  return (
-                    <div
-                      key={'tlc-' + band.id + '-' + cell.t + '-' + item.scene.id}
-                      className={
-                        'tl-chip' +
-                        (chipDrag && chipDrag.sceneId === item.scene.id ? ' dragging' : '')
-                      }
-                      style={{
-                        left: band.x + cell.x + 3,
-                        top: band.chipLaneTop + i * (T.CHIP_H + T.CHIP_GAP),
-                        width: T.DAY_CELL_W - 6,
-                        background: B.hexToRgba(item.color, 0.28),
-                        color: item.color
-                      }}
-                      title={item.scene.title}
-                      onPointerDown={(e) => onChipPointerDown(e, item.scene.id)}
-                      onPointerMove={(e) => onChipPointerMove(e, item.scene.id)}
-                      onPointerUp={(e) => onChipPointerUp(e, item.scene.id)}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSelectScene(item.scene.id)
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        onOpenInEditor(item.scene.id)
-                      }}
-                    >
-                      {item.slotIcon && <span className="tl-chip-slot">{item.slotIcon}</span>}
-                      {item.num}
-                      <span
-                        className="tl-chip-dot neg"
-                        title="Negative — drag into the next scene's positive to connect it"
-                        onPointerDown={(e) => onDotPointerDown(e, item, 'neg')}
-                        onPointerMove={onDotPointerMove}
-                        onPointerUp={onDotPointerUp}
-                      >
-                        −
-                      </span>
-                      <span
-                        className="tl-chip-dot pos"
-                        title="Positive — the previous scene's negative flows in here"
-                        onPointerDown={(e) => onDotPointerDown(e, item, 'pos')}
-                        onPointerMove={onDotPointerMove}
-                        onPointerUp={onDotPointerUp}
-                      >
-                        ＋
-                      </span>
-                    </div>
-                  )
-                })
-              })}
-              {/* "+ more" marker */}
-              {band.cells.map((cell) => {
-                const list = dayScenes(band, cell.t)
-                if (list.length <= T.MAX_CHIPS_VISIBLE) return null
-                return (
-                  <div
-                    key={'tlm-' + band.id + '-' + cell.t}
-                    className="tl-more"
-                    style={{
-                      left: band.x + cell.x + 3,
-                      top: band.chipLaneTop + T.MAX_CHIPS_VISIBLE * (T.CHIP_H + T.CHIP_GAP)
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setDayPanel({ yearId: band.id, day: cell.t })
-                    }}
-                  >
-                    +{list.length - T.MAX_CHIPS_VISIBLE}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
+          {/* time gap between neighbouring scenes (even without a wire) */}
+          {layout.neighbourGaps.map((g) =>
+            g.gap ? (
+              <div key={'ng-' + g.key} className="tlx-ngap" style={{ left: g.x, top: g.y }}>
+                {g.gap.text}
+              </div>
+            ) : null
+          )}
 
-          {/* unscheduled scenes strip */}
-          <div
-            className="tl-unsched"
-            style={{ left: 0, top: unschedY, width: layout.width, height: 90 }}
-          >
-            <div className="tl-unsched-title">
-              Unscheduled scenes — click a day above to place a scene on it
+          {datedCards.length === 0 && (
+            <div className="tlx-empty" style={{ left: T.FLOW_PAD_X, top: T.FLOW_TRACK_Y }}>
+              No scene has a date yet. Click a scene below (or use the 🕰 When row in the Editor) and
+              pick its Year, Month, Day and Time — it will appear here in time order.
             </div>
-            <div className="tl-unsched-list">
-              {unassigned.map((item, k) => (
-                <div
-                  key={'u-' + item.scene.id}
-                  className="tl-chip-big"
-                  style={{
-                    left: (k % 10) * 158,
-                    top: Math.floor(k / 10) * 28,
-                    background: B.hexToRgba(B.zoneColor(item.chapterIndex), 0.28),
-                    color: B.zoneColor(item.chapterIndex)
-                  }}
-                  title={item.scene.title}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onSelectScene(item.scene.id)
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation()
-                    onOpenInEditor(item.scene.id)
-                  }}
-                >
-                  <span className="tl-chip-big-num">
-                    {item.chapterIndex + 1}.{item.sceneIndex + 1}
-                  </span>
-                  <span className="tl-chip-big-title">{item.scene.title}</span>
-                  <span
-                    className="tl-chip-dot neg"
-                    title="Negative — drag into the next scene's positive to connect it"
-                    onPointerDown={(e) => onDotPointerDown(e, item, 'neg')}
-                    onPointerMove={onDotPointerMove}
-                    onPointerUp={onDotPointerUp}
-                  >
-                    −
-                  </span>
-                  <span
-                    className="tl-chip-dot pos"
-                    title="Positive — the previous scene's negative flows in here"
-                    onPointerDown={(e) => onDotPointerDown(e, item, 'pos')}
-                    onPointerMove={onDotPointerMove}
-                    onPointerUp={onDotPointerUp}
-                  >
-                    ＋
-                  </span>
-                </div>
-              ))}
-              {unassigned.length === 0 && (
-                <div className="tl-none">🎉 Every scene has a day on the calendar.</div>
-              )}
-            </div>
+          )}
+
+          {/* undated strip */}
+          <div className="tlx-undated-title" style={{ left: T.FLOW_PAD_X, top: layout.undatedY }}>
+            {undatedCards.length
+              ? 'Not dated yet — click a scene to give it a date'
+              : '🎉 Every scene has a date.'}
           </div>
 
-          {/* actual-story wires — flow negative → positive between chips */}
-          <svg className="tl-wires" width={layout.width} height={unschedY + 90}>
-            <defs>
-              <marker
-                id="tlarr"
-                markerWidth="11"
-                markerHeight="11"
-                refX="9"
-                refY="5.5"
-                orient="auto"
-                markerUnits="userSpaceOnUse"
+          {/* scene cards */}
+          {layout.cards.map((card) => {
+            const color = B.zoneColor(card.chapterIndex)
+            const selected = card.scene.id === selectedSceneId
+            return (
+              <div
+                key={'card-' + card.scene.id}
+                className={
+                  'tlx-card' + (selected ? ' selected' : '') + (card.dated ? '' : ' undated')
+                }
+                style={{
+                  left: card.x,
+                  top: card.y,
+                  width: card.w,
+                  height: card.h,
+                  borderColor: B.hexToRgba(color, 0.7)
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelectScene(card.scene.id)
+                  setSelectedLinkId(null)
+                  setWhenSceneId((id) => (id === card.scene.id ? null : card.scene.id))
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  onOpenInEditor(card.scene.id)
+                }}
+                title="Click to set the date & time · double-click to open in the Editor"
               >
-                <path d="M0 0 L11 5.5 L0 11 Z" fill={tlWireColor} />
-              </marker>
+                <div className="tlx-card-bar" style={{ background: color }} />
+                <div className="tlx-card-head">
+                  <span className="tlx-card-num" style={{ color }}>
+                    {card.num}
+                  </span>
+                  <span className="tlx-card-title">{card.scene.title || 'Scene'}</span>
+                </div>
+                <div className={'tlx-card-when' + (card.dated ? '' : ' none')}>
+                  {card.dated ? T.formatWhen(cal, card.scene.timeline) : '🕰 Set a date…'}
+                </div>
+                <span
+                  className={
+                    'tlx-dot pos' +
+                    (linkDrag &&
+                    linkDrag.snap?.sceneId === card.scene.id &&
+                    linkDrag.fromPole === 'neg'
+                      ? ' snap'
+                      : '')
+                  }
+                  title="Positive — the previous scene's negative flows in here"
+                  onPointerDown={(e) => onDotPointerDown(e, card, 'pos')}
+                  onPointerMove={onDotPointerMove}
+                  onPointerUp={onDotPointerUp}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ＋
+                </span>
+                <span
+                  className={
+                    'tlx-dot neg' +
+                    (linkDrag &&
+                    linkDrag.snap?.sceneId === card.scene.id &&
+                    linkDrag.fromPole === 'pos'
+                      ? ' snap'
+                      : '')
+                  }
+                  title="Negative — drag into the next scene's ＋ to connect them in time"
+                  onPointerDown={(e) => onDotPointerDown(e, card, 'neg')}
+                  onPointerMove={onDotPointerMove}
+                  onPointerUp={onDotPointerUp}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  −
+                </span>
+              </div>
+            )
+          })}
+
+          {/* wires — same coordinate system as the cards (no offsets) */}
+          <svg className="tlx-wires" width={layout.width} height={layout.height}>
+            <defs>
+              {[
+                ['tlx-arr', wireColor],
+                ['tlx-arr-back', backColor]
+              ].map(([id, color]) => (
+                <marker
+                  key={id}
+                  id={id}
+                  markerWidth="12"
+                  markerHeight="12"
+                  refX="10"
+                  refY="6"
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  <path d="M0 0 L12 6 L0 12 Z" fill={color} />
+                </marker>
+              ))}
             </defs>
-            {tlWires.map(({ link, d }) => {
-              const selected = selectedTlLinkId === link.id
+            {wires.map((w) => {
+              const selected = selectedLinkId === w.link.id
+              const back = w.gap && w.gap.backwards
               return (
-                <g key={'tlw-' + link.id} className="tl-wire-g">
+                <g key={'w-' + w.link.id}>
                   <path
-                    className="tl-wire-hit"
-                    d={d}
-                    stroke={tlWireColor}
+                    className="tlx-wire-hit"
+                    d={w.d}
                     onPointerDown={(e) => {
                       e.stopPropagation()
-                      setSelectedTlLinkId(selected ? null : link.id)
+                      setWhenSceneId(null)
+                      setSelectedLinkId(selected ? null : w.link.id)
                     }}
                   />
                   <path
-                    className="tl-wire-soft"
-                    d={d}
-                    stroke={tlWireColor}
-                    style={{ opacity: selected ? 0.3 : tlDim * 0.2 }}
+                    className="tlx-wire-soft"
+                    d={w.d}
+                    stroke={w.color}
+                    style={{ opacity: selected ? 0.35 : dim * 0.22 }}
                   />
                   <path
-                    className="tl-wire"
-                    d={d}
-                    stroke={tlWireColor}
-                    markerEnd="url(#tlarr)"
-                    strokeDasharray={tlWireType.dash || undefined}
+                    className={'tlx-wire' + (selected ? ' selected' : '')}
+                    d={w.d}
+                    stroke={w.color}
+                    strokeDasharray={back ? '9 6' : undefined}
+                    markerEnd={back ? 'url(#tlx-arr-back)' : 'url(#tlx-arr)'}
                     style={{
-                      opacity: selected ? 1 : tlDim,
-                      filter: `drop-shadow(0 0 ${selected ? 6 : 3}px ${tlWireColor})`
+                      opacity: selected ? 1 : dim,
+                      filter: `drop-shadow(0 0 ${selected ? 6 : 3}px ${w.color})`
                     }}
                   />
+                  <circle cx={w.from.x} cy={w.from.y} r={4.5} fill={w.color} />
+                  <circle cx={w.to.x} cy={w.to.y} r={4.5} fill={w.color} />
                 </g>
               )
             })}
-            {tlLinkDrag && (
-              <path className="tl-wire tl-wire-ghost" d={tlGhostPath} stroke={tlWireColor} />
-            )}
+            {linkDrag && <path className="tlx-wire tlx-wire-ghost" d={ghost} stroke={wireColor} />}
           </svg>
 
-          {tlLinkDrag && tlLinkDrag.snap && (
+          {/* time-gap label on every wire */}
+          {wires.map((w) => (
             <div
-              className="tl-snapring"
-              style={{ left: tlLinkDrag.snap.x, top: tlLinkDrag.snap.y }}
-            />
+              key={'wl-' + w.link.id}
+              className={
+                'tlx-wire-label' +
+                (selectedLinkId === w.link.id ? ' selected' : '') +
+                (w.gap && w.gap.backwards ? ' back' : '') +
+                (w.gap ? '' : ' unknown')
+              }
+              style={{ left: w.mid.x, top: w.mid.y, borderColor: w.color, color: w.color }}
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                setWhenSceneId(null)
+                setSelectedLinkId((id) => (id === w.link.id ? null : w.link.id))
+              }}
+              title="Time between these two scenes — click for details"
+            >
+              {w.gap ? w.gap.text : 'no date'}
+            </div>
+          ))}
+
+          {linkDrag && linkDrag.snap && (
+            <div className="tl-snapring" style={{ left: linkDrag.snap.x, top: linkDrag.snap.y }} />
           )}
         </div>
 
-        {/* day panel */}
-        {dayPanel && dayPanelYear && (
+        {/* chapter time spans + gaps between chapters */}
+        {chaptersOpen && (
+          <div className="tlx-chapters" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="tlx-chapters-head">⏳ Chapters in time</div>
+            {spans.map((sp) => {
+              const color = B.zoneColor(sp.chapterIndex)
+              return (
+                <div key={sp.chapter.id} className="tlx-ch">
+                  <div className="tlx-ch-row">
+                    <span className="tlx-ch-dot" style={{ background: color }} />
+                    <span className="tlx-ch-name">
+                      Ch {sp.chapterIndex + 1} · {sp.chapter.title}
+                    </span>
+                  </div>
+                  <div className="tlx-ch-span">
+                    {sp.start
+                      ? T.formatWhen(cal, sp.start) +
+                        (sp.duration && sp.duration.minutes > 0
+                          ? '  →  ' + T.formatWhen(cal, sp.end)
+                          : '')
+                      : 'no dated scenes yet'}
+                  </div>
+                  {sp.duration && sp.duration.minutes > 0 && (
+                    <div className="tlx-ch-dur">lasts {sp.duration.text.replace(/^\+/, '')}</div>
+                  )}
+                  {sp.gapToNext && (
+                    <div className={'tlx-ch-gap' + (sp.gapToNext.gap.backwards ? ' back' : '')}>
+                      ↓{' '}
+                      {sp.gapToNext.gap.backwards
+                        ? 'Ch ' + (sp.gapToNext.toIndex + 1) + ' starts earlier: '
+                        : 'gap to Ch ' + (sp.gapToNext.toIndex + 1) + ': '}
+                      {sp.gapToNext.gap.text.replace(/^\+/, '')}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* date & time popover for a scene */}
+        {whenCard && (
           <div
-            className="board-popover tl-day-panel"
-            style={{ left: dayPopLeft, top: dayPopTop, width: 324 }}
+            className="board-popover tlx-when-pop"
+            style={{ ...popAt(whenCard.x + whenCard.w, whenCard.y, 380, 190), width: 380 }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="board-popover-head">
               <span className="pop-title">
-                {dayPanelYear.yearLabel} · {dayPanelYear.monthLabel} · {dayPanelYear.dayLabel}
+                {whenCard.num} · {whenCard.scene.title || 'Scene'}
               </span>
-              <button className="pop-close" onClick={() => setDayPanel(null)}>
+              <button className="pop-close" onClick={() => setWhenSceneId(null)}>
                 ✕
               </button>
             </div>
-            <div className="pop-block-label">Scenes on this day</div>
-            {dayPanelScenes.length === 0 && <div className="pop-empty">Nothing scheduled yet.</div>}
-            {dayPanelScenes.map((item) => (
-              <div key={item.scene.id} className="tl-day-scene">
-                <span
-                  className="tl-day-scene-chip"
-                  style={{ background: B.hexToRgba(item.color, 0.28), color: item.color }}
-                >
-                  {item.slotIcon} {item.num}
-                </span>
-                <span className="tl-day-scene-title" onClick={() => onSelectScene(item.scene.id)}>
-                  {item.scene.title}
-                </span>
-                <select
-                  className="tl-slot-select"
-                  value={item.slot || ''}
-                  title="Time of day for this scene"
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    patch((s) =>
-                      T.assignSceneTime(s, item.scene.id, {
-                        yearId: dayPanel.yearId,
-                        day: dayPanel.day,
-                        slot: e.target.value || null
-                      })
-                    )
-                    endSession()
-                  }}
-                >
-                  <option value="">— any time —</option>
-                  {T.DAY_SLOTS.map((sl) => (
-                    <option key={sl.id} value={sl.id}>
-                      {sl.icon} {sl.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="pop-x"
-                  title="Remove this scene from the day"
-                  onClick={() => {
-                    patch((s) => T.assignSceneTime(s, item.scene.id, null))
-                    endSession()
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            <div className="pop-block-label">Place an unscheduled scene here</div>
-            {unassigned.length === 0 ? (
-              <div className="pop-empty">No unscheduled scenes.</div>
-            ) : (
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  if (e.target.value) {
-                    patch((s) =>
-                      T.assignSceneTime(s, e.target.value, {
-                        yearId: dayPanel.yearId,
-                        day: dayPanel.day
-                      })
-                    )
-                    endSession()
-                    e.target.value = ''
-                  }
-                }}
-              >
-                <option value="">Choose a scene…</option>
-                {unassigned.map((item) => (
-                  <option key={item.scene.id} value={item.scene.id}>
-                    {item.chapterIndex + 1}.{item.sceneIndex + 1} — {item.scene.title}
-                  </option>
-                ))}
-              </select>
-            )}
-            <div className="pop-hint">Drag a scene chip to another day to move it.</div>
+            <div className="pop-block-label">When does this scene happen?</div>
+            <SceneWhen
+              story={story}
+              scene={whenCard.scene}
+              compact
+              onChange={(when) => {
+                patch((s) => T.setSceneWhen(s, whenCard.scene.id, when))
+                endSession()
+              }}
+            />
+            <div className="pop-hint">
+              Uses your own calendar (⚙ Setup calendar). Scenes line up left → right in time order.
+            </div>
           </div>
         )}
 
-        {tlSelected && (
+        {/* wire details */}
+        {selectedWire && (
           <div
             className="board-popover"
-            style={{ left: tlPopLeft, top: tlPopTop, width: 250 }}
+            style={{ ...popAt(selectedWire.mid.x, selectedWire.mid.y, 270, 230), width: 270 }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="board-popover-head">
-              <span className="pop-title">Timeline wire</span>
-              <button className="pop-close" onClick={() => setSelectedTlLinkId(null)}>
+              <span className="pop-title">Story-time wire</span>
+              <button className="pop-close" onClick={() => setSelectedLinkId(null)}>
                 ✕
               </button>
             </div>
-            <div className="pop-block-label">Actual story order</div>
-            <div className="tl-wire-pop-line">− {tlSelected.fromTitle}</div>
-            <div className="tl-wire-pop-line">→ ＋ {tlSelected.toTitle}</div>
-            <div className="pop-hint">
-              This is the actual story: scene&apos;s negative flows into the next scene&apos;s
-              positive.
+            <div className="tl-wire-pop-line">
+              − {selectedWire.a.num} {selectedWire.a.scene.title}
+            </div>
+            <div className="tlx-pop-when">{T.formatWhen(cal, selectedWire.a.scene.timeline)}</div>
+            <div className="tl-wire-pop-line">
+              → ＋ {selectedWire.b.num} {selectedWire.b.scene.title}
+            </div>
+            <div className="tlx-pop-when">{T.formatWhen(cal, selectedWire.b.scene.timeline)}</div>
+            <div className={'tlx-pop-gap' + (selectedWire.gap?.backwards ? ' back' : '')}>
+              {selectedWire.gap
+                ? selectedWire.gap.backwards
+                  ? 'Flashback — goes back ' + selectedWire.gap.text.replace(/^⟲ back /, '')
+                  : 'Time gap: ' + selectedWire.gap.text.replace(/^\+/, '')
+                : 'Give both scenes a date to see the time gap.'}
             </div>
             <button
               className="pop-danger"
               onClick={() => {
-                commit((s) => T.removeTimelineLink(s, tlSelected.link.id))
-                setSelectedTlLinkId(null)
+                commit((s) => T.removeTimelineLink(s, selectedWire.link.id))
+                setSelectedLinkId(null)
               }}
             >
-              Delete this timeline wire
+              Delete this wire
             </button>
           </div>
         )}
 
         <div className="board-hint">
-          Click a day to schedule scenes &amp; set the time of day · Drag a scene chip onto a day to
-          move it · Drag a − port into a ＋ port to connect the actual story in time · Setup
-          calendar builds the structure from scratch
+          Click a scene to set its Year · Month · Day · Time · Drag a − dot into another
+          scene&apos;s ＋ dot to connect the story in time · Every wire shows the time gap
         </div>
       </div>
 
@@ -965,9 +766,9 @@ export default function Timeline({
               <p className="pop-blurb">
                 Your story&apos;s calendar is made of <b>years</b>, each with <b>months</b> and a
                 number of <b>days</b>. Rename years, change how many months and days exist, or
-                invent month names — day numbers fill in automatically.
+                invent month names. Scene dates and time gaps follow this calendar.
               </p>
-              {story.timeline && story.timeline.years.length === 0 && (
+              {story.timeline && (story.timeline.years || []).length === 0 && (
                 <div className="pop-empty">No years yet — add your first year below.</div>
               )}
               {(story.timeline?.years || []).map((year) => (
@@ -994,6 +795,7 @@ export default function Timeline({
 
 Timeline.propTypes = {
   story: PropTypes.object.isRequired,
+  selectedSceneId: PropTypes.string,
   onSelectScene: PropTypes.func.isRequired,
   onOpenInEditor: PropTypes.func.isRequired,
   patch: PropTypes.func.isRequired,

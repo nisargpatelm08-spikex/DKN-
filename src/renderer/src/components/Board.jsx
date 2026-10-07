@@ -645,11 +645,15 @@ export default function Board({
           ))}
 
           {/* wires */}
+          {/* The svg's viewBox starts at -WORLD_HALF, so the element itself must
+              sit at -WORLD_HALF too — then svg point (x, y) lands exactly on
+              world (x, y), the same place the cards are drawn. */}
           <svg
             className="board-links"
             width={WORLD}
             height={WORLD}
             viewBox={`-${WORLD_HALF} -${WORLD_HALF} ${WORLD} ${WORLD}`}
+            style={{ left: -WORLD_HALF, top: -WORLD_HALF }}
           >
             <defs>
               {B.PLUG_TYPES.map((t) => (

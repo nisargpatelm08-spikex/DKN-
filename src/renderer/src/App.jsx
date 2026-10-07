@@ -3,6 +3,8 @@ import { sampleStory } from './data/sampleStory'
 import DrawingPad from './components/DrawingPad'
 import Board from './components/Board'
 import Timeline from './components/Timeline'
+import SceneWhen from './components/SceneWhen'
+import { setSceneWhen } from './lib/timelineUtils'
 import LangMixBar from './components/LangMixBar'
 import TranslatePanel from './components/TranslatePanel'
 import { buildPrintHtml } from './lib/printHtml'
@@ -934,6 +936,16 @@ function App() {
                     setStory(updateScene(story, selectedSceneId, { title: e.target.value }))
                   }}
                   placeholder="Scene title"
+                />
+
+                <SceneWhen
+                  story={story}
+                  scene={selected.scene}
+                  onChange={(when) => {
+                    markChange()
+                    setStory(setSceneWhen(story, selectedSceneId, when))
+                    endSession()
+                  }}
                 />
 
                 <div
