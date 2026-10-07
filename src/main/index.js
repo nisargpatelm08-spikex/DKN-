@@ -95,6 +95,35 @@ app.whenReady().then(() => {
     }
   })
 
+  // The board graph's working temp file: while the story is still being
+  // written, scene positions + wires live here. On a real save the data is
+  // committed into the .dknproj file and the temp copy is cleared.
+  ipcMain.handle('dkn:boardGraphSave', async (_event, data) => {
+    const filePath = join(app.getPath('userData'), 'board-graph.tmp.json')
+    await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8')
+    return { ok: true }
+  })
+
+  ipcMain.handle('dkn:boardGraphLoad', async () => {
+    const filePath = join(app.getPath('userData'), 'board-graph.tmp.json')
+    try {
+      const text = await readFile(filePath, 'utf-8')
+      return { ok: true, data: JSON.parse(text) }
+    } catch {
+      return { ok: false }
+    }
+  })
+
+  ipcMain.handle('dkn:boardGraphClear', async () => {
+    const filePath = join(app.getPath('userData'), 'board-graph.tmp.json')
+    try {
+      await rm(filePath, { force: true })
+    } catch {
+      /* ignore cleanup errors */
+    }
+    return { ok: true }
+  })
+
   // Free web translation (used by the in-app Translate tool). Routed through
   // the main process because the renderer's CSP only allows same-origin loads.
   ipcMain.handle('dkn:translate', async (_event, payload) => {

@@ -2,24 +2,33 @@
 // Loaded into a hidden window and printed to PDF by the main process.
 
 const esc = (value) =>
-  String(value ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  })[c])
+  String(value ?? '').replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[c]
+  )
 
 export function buildPrintHtml(story) {
   const chapters = Array.isArray(story.chapters) ? story.chapters : []
-  const sceneCount = chapters.reduce((n, c) => n + (Array.isArray(c.scenes) ? c.scenes.length : 0), 0)
+  const sceneCount = chapters.reduce(
+    (n, c) => n + (Array.isArray(c.scenes) ? c.scenes.length : 0),
+    0
+  )
 
   const chaptersHtml = chapters
     .map((chapter, ci) => {
       const scenes = Array.isArray(chapter.scenes) ? chapter.scenes : []
       const scenesHtml = scenes
         .map((scene, si) => {
-          const image = scene.image ? `<img class="scene-img" src="${scene.image}" alt="Scene ${ci + 1}.${si + 1} artwork" />` : ''
+          const image = scene.image
+            ? `<img class="scene-img" src="${scene.image}" alt="Scene ${ci + 1}.${si + 1} artwork" />`
+            : ''
           const heading = scene.title ? `<h3 class="scene-title">${esc(scene.title)}</h3>` : ''
           const prose = scene.text ? `<p class="prose">${esc(scene.text)}</p>` : ''
           return `<div class="scene">

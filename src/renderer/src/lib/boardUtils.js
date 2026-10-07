@@ -244,6 +244,18 @@ export function midOf(from, to, bend = 0, curve = 0.5) {
   }
 }
 
+// Direction the thread travels at a given t — the unit-ish tangent (dx, dy)
+// and its angle. Used to draw the coloured negative → positive chevron that
+// sits halfway along every wire.
+export function tangentOf(from, to, bend = 0, curve = 0.5, t = 0.5) {
+  const { c1, c2 } = threadCtrlPoints(from, to, bend, curve)
+  const u = 1 - t
+  const dx = 3 * u * u * (c1.x - from.x) + 6 * u * t * (c2.x - c1.x) + 3 * t * t * (to.x - c2.x)
+  const dy = 3 * u * u * (c1.y - from.y) + 6 * u * t * (c2.y - c1.y) + 3 * t * t * (to.y - c2.y)
+  const len = Math.hypot(dx, dy) || 1
+  return { dx: dx / len, dy: dy / len, len, angle: Math.atan2(dy, dx) }
+}
+
 // ---------- lookups ----------
 
 export function findSceneLoc(story, sceneId) {

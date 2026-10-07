@@ -7,6 +7,9 @@ const api = {
   openProject: () => ipcRenderer.invoke('dkn:open'),
   autosave: (data) => ipcRenderer.invoke('dkn:autosave', data),
   loadAutosave: () => ipcRenderer.invoke('dkn:loadAutosave'),
+  saveBoardGraph: (data) => ipcRenderer.invoke('dkn:boardGraphSave', data),
+  loadBoardGraph: () => ipcRenderer.invoke('dkn:boardGraphLoad'),
+  clearBoardGraph: () => ipcRenderer.invoke('dkn:boardGraphClear'),
   translate: (payload) => ipcRenderer.invoke('dkn:translate', payload),
   exportPdf: (html, title) => ipcRenderer.invoke('dkn:exportPdf', { html, title })
 }

@@ -1086,6 +1086,17 @@ li:has(.scene-item.drag-over) {
   opacity: 0.55;
 }
 
+/* The small chevron painted at the middle of every wire, always pointing
+   negative → positive. It rides inside the click-transparent svg. */
+.board-link-chevron {
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.board-link-g.selected .board-link-chevron {
+  opacity: 1;
+}
+
 /* ---------- overlay ---------- */
 
 .board-overlay {

@@ -7,6 +7,7 @@ import LangMixBar from './components/LangMixBar'
 import TranslatePanel from './components/TranslatePanel'
 import { buildPrintHtml } from './lib/printHtml'
 import { pruneLinksForScene, sanitizeBoard, CARD_W, CARD_H } from './lib/boardUtils'
+import * as G from './lib/boardGraph'
 
 const uid = () => crypto.randomUUID()
 const UNDO_LIMIT = 10
@@ -247,7 +248,10 @@ function App() {
       const res = await window.api.saveProject(sanitizeBoard(story), projectPath)
       if (!res.canceled) {
         setProjectPath(res.path)
-        setStatus('Saved · ' + res.path)
+        // The board graph is now committed inside the project file, so the
+        // working temp copy is no longer needed.
+        window.api.clearBoardGraph().catch(() => {})
+        setStatus('Saved ✓ board committed · ' + res.path)
       }
     } catch (err) {
       window.alert('Could not save: ' + err.message)
@@ -297,19 +301,58 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  // Recover the last session from autosave on launch.
+  // Recover the last session from autosave on launch, then overlay the board
+  // graph's working temp file (newest positions + wires) on top.
+  const applyBoardGraphTemp = async (current) => {
+    if (typeof window.api?.loadBoardGraph !== 'function') return current
+    try {
+      const res = await window.api.loadBoardGraph()
+      if (res && res.ok && res.data && res.data.storyId === current.id) {
+        return G.mergeBoardGraph(current, res.data)
+      }
+    } catch {
+      /* temp file is best-effort */
+    }
+    return current
+  }
+
   useEffect(() => {
     if (!window.api) return
+    let cancelled = false
     window.api
       .loadAutosave()
-      .then((res) => {
+      .then(async (res) => {
+        if (cancelled) return
         if (res && res.ok && res.data && Array.isArray(res.data.chapters)) {
-          openStory(res.data, null)
-          setStatus('Recovered your last session automatically')
+          const merged = await applyBoardGraphTemp(res.data)
+          if (!cancelled) {
+            openStory(merged, null)
+            setStatus('Recovered your last session automatically')
+          }
+        } else {
+          const merged = await applyBoardGraphTemp(sanitizeBoard(sampleStory))
+          if (!cancelled && merged.id !== sampleStory.id) {
+            openStory(merged, null)
+          }
         }
       })
       .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  // While the story is still being written, the board graph (scene positions
+  // + wires) is kept in its own working temp file. A real save commits it.
+  const boardTmpTimer = useRef(null)
+  useEffect(() => {
+    if (typeof window.api?.saveBoardGraph !== 'function') return
+    clearTimeout(boardTmpTimer.current)
+    boardTmpTimer.current = setTimeout(() => {
+      window.api.saveBoardGraph(G.snapshotBoardGraph(story)).catch(() => {})
+    }, 700)
+    return () => clearTimeout(boardTmpTimer.current)
+  }, [story])
 
   // Safety net: quietly save to app data ~1s after changes.
   useEffect(() => {
@@ -345,10 +388,19 @@ function App() {
   // ----- adding -----
 
   const handleAddChapter = () => {
+    const ci = story.chapters.length
+    const spot = G.autoPlace(G.buildBoardGraph(story), null, 90 + ci * 270, 110)
     const chapter = {
       id: uid(),
       title: 'New Chapter',
-      scenes: [{ id: uid(), title: 'Scene 1', text: '', board: { pos: [uid()], neg: [uid()] } }]
+      scenes: [
+        {
+          id: uid(),
+          title: 'Scene 1',
+          text: '',
+          board: { x: spot.x, y: spot.y, pos: [uid()], neg: [uid()] }
+        }
+      ]
     }
     markChange()
     setStory((prev) => ({ ...prev, chapters: [...prev.chapters, chapter] }))
@@ -358,7 +410,13 @@ function App() {
   }
 
   const handleAddScene = (chapterId) => {
-    const scene = { id: uid(), title: 'New scene', text: '', board: { pos: [uid()], neg: [uid()] } }
+    const spot = G.autoPlace(G.buildBoardGraph(story), chapterId)
+    const scene = {
+      id: uid(),
+      title: 'New scene',
+      text: '',
+      board: { x: spot.x, y: spot.y, pos: [uid()], neg: [uid()] }
+    }
     markChange()
     setStory((prev) => ({
       ...prev,
@@ -372,13 +430,15 @@ function App() {
   }
 
   // Used by the Board's right-click menu: same as handleAddScene but the new
-  // card is placed exactly where the user right-clicked on the canvas.
+  // card is placed exactly where the user right-clicked on the canvas. If that
+  // spot is already taken, it slides to the nearest free spot instead.
   const handleAddSceneAt = (chapterId, x, y) => {
+    const spot = G.autoPlace(G.buildBoardGraph(story), chapterId, x, y)
     const scene = {
       id: uid(),
       title: 'New scene',
       text: '',
-      board: { x: Math.round(x), y: Math.round(y), pos: [uid()], neg: [uid()] }
+      board: { x: spot.x, y: spot.y, pos: [uid()], neg: [uid()] }
     }
     markChange()
     setStory((prev) => ({
@@ -393,11 +453,12 @@ function App() {
   }
 
   const handleAddChapterAt = (x, y) => {
+    const spot = G.autoPlace(G.buildBoardGraph(story), null, x, y)
     const scene = {
       id: uid(),
       title: 'Scene 1',
       text: '',
-      board: { x: Math.round(x), y: Math.round(y), pos: [uid()], neg: [uid()] }
+      board: { x: spot.x, y: spot.y, pos: [uid()], neg: [uid()] }
     }
     const chapter = {
       id: uid(),

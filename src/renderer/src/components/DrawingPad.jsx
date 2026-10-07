@@ -119,7 +119,10 @@ function DrawingPad({ image, onSave, onCancel }) {
             />
           ))}
           <span className="tool-sep" />
-          <button className={'tool-btn' + (eraser ? ' active' : '')} onClick={() => setEraser((v) => !v)}>
+          <button
+            className={'tool-btn' + (eraser ? ' active' : '')}
+            onClick={() => setEraser((v) => !v)}
+          >
             Eraser
           </button>
           <button className="tool-btn" onClick={clear}>

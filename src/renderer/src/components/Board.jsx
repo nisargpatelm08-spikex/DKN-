@@ -113,6 +113,7 @@ export default function Board({
         it.bend = n === 1 ? 0 : (i - (n - 1) / 2) * BEND
         it.d = B.linkPath(it.from, it.to, it.bend, threadCurve)
         it.mid = B.midOf(it.from, it.to, it.bend, threadCurve)
+        it.angle = B.tangentOf(it.from, it.to, it.bend, threadCurve).angle
       })
     })
     return { chapters, links, portLookup }
@@ -666,7 +667,7 @@ export default function Board({
                 </marker>
               ))}
             </defs>
-            {board.links.map(({ link, from, to, d, type }) => {
+            {board.links.map(({ link, from, to, d, mid, angle, type }) => {
               const selected = selectedLinkId === link.id
               return (
                 <g key={'l-' + link.id} className={'board-link-g' + (selected ? ' selected' : '')}>
@@ -697,6 +698,21 @@ export default function Board({
                   {/* anchor dots so the wire visibly starts and ends on both ports */}
                   <circle cx={from.x} cy={from.y} r={5} fill={type.color} />
                   <circle cx={to.x} cy={to.y} r={5} fill={type.color} />
+                  {/* the direction chevron: always points NEGATIVE → POSITIVE, in the wire's colour */}
+                  <g
+                    className="board-link-chevron"
+                    transform={`translate(${mid.x} ${mid.y}) rotate(${(
+                      (angle / Math.PI) *
+                      180
+                    ).toFixed(1)})`}
+                    style={{ opacity: selected ? 1 : dim }}
+                  >
+                    <polygon
+                      points="-7,-7 7,0 -7,7"
+                      fill={type.color}
+                      style={{ filter: `drop-shadow(0 0 3px ${type.color})` }}
+                    />
+                  </g>
                 </g>
               )
             })}
