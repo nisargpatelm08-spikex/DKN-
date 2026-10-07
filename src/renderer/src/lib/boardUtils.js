@@ -256,6 +256,22 @@ export function tangentOf(from, to, bend = 0, curve = 0.5, t = 0.5) {
   return { dx: dx / len, dy: dy / len, len, angle: Math.atan2(dy, dx) }
 }
 
+// Evenly sampled points along a wire (used by the ✂ cut knife to test which
+// wires a cut line crosses).
+export function pointsAlong(from, to, bend = 0, curve = 0.5, n = 24) {
+  const { c1, c2 } = threadCtrlPoints(from, to, bend, curve)
+  const pts = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n
+    const u = 1 - t
+    pts.push({
+      x: u * u * u * from.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * to.x,
+      y: u * u * u * from.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * to.y
+    })
+  }
+  return pts
+}
+
 // ---------- lookups ----------
 
 export function findSceneLoc(story, sceneId) {

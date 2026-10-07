@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import * as B from '../lib/boardUtils'
-import { getPrefs, PREFS_EVENT, PREFS_DEFAULTS } from '../lib/prefs'
+import * as W from '../lib/wireTools'
+import * as G from '../lib/boardGraph'
+import {
+  getPrefs,
+  savePrefs,
+  PREFS_EVENT,
+  PREFS_DEFAULTS,
+  keyMatches,
+  isTypingTarget,
+  describeKey
+} from '../lib/prefs'
 import { WORLD, WORLD_HALF, useCanvasView, useViewportSize, useWheelZoom } from '../lib/canvasView'
+import ToolMenu from './ToolMenu'
+import ShortcutSettings from './ShortcutSettings'
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const typeOf = (id) => B.PLUG_TYPE_MAP[id] || B.PLUG_TYPE_MAP[B.DEFAULT_LINK_TYPE]
@@ -29,6 +41,14 @@ export default function Board({
   const [ctxMenu, setCtxMenu] = useState(null) // { x, y, worldX, worldY, chapter }
   const [sceneMenu, setSceneMenu] = useState(null) // { sceneId, x, y, tag }
   const [linkDraft, setLinkDraft] = useState({ type: B.DEFAULT_LINK_TYPE, label: '' })
+  // W / S tool menus, the ✂ cut knife, and a short status message.
+  const [toolMenu, setToolMenu] = useState(null) // { kind: 'wire'|'scene', x, y, sceneId, hovered }
+  const [cutMode, setCutMode] = useState(false)
+  const [cutLine, setCutLine] = useState(null) // viewport-relative { x1, y1, x2, y2, c1, c2 }
+  const [flash, setFlash] = useState(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const hoveredSceneRef = useRef(null)
+  const lastMouseRef = useRef(null) // viewport-relative mouse position
   // Preferences react to live changes (e.g. the Thread bend slider in the
   // Timeline's Settings panel redraws the threads as it moves).
   const [prefs, setPrefs] = useState(getPrefs)
@@ -143,6 +163,9 @@ export default function Board({
         setSelectedLinkId(null)
         setCtxMenu(null)
         setSceneMenu(null)
+        setToolMenu(null)
+        setCutMode(false)
+        setCutLine(null)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -154,6 +177,7 @@ export default function Board({
     const close = () => {
       setCtxMenu(null)
       setSceneMenu(null)
+      setToolMenu(null)
     }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
@@ -177,6 +201,8 @@ export default function Board({
   }
 
   const onViewportPointerMove = (e) => {
+    const vr = viewportRef.current?.getBoundingClientRect()
+    if (vr) lastMouseRef.current = { x: e.clientX - vr.left, y: e.clientY - vr.top }
     const d = drag
     if (d && d.kind === 'pan') {
       setView((v) => ({
@@ -497,6 +523,362 @@ export default function Board({
     onAddChapterAt(menu.worldX, menu.worldY)
   }
 
+  // ---------- W / S tool menus ----------
+
+  const keys = { ...PREFS_DEFAULTS.keys, ...(prefs.keys || {}) }
+
+  const showFlash = (text) => {
+    setFlash((f) => ({ text, n: (f ? f.n : 0) + 1 }))
+  }
+  // The status message fades out on its own.
+  useEffect(() => {
+    if (!flash) return
+    const t = setTimeout(() => setFlash(null), 2600)
+    return () => clearTimeout(t)
+  }, [flash])
+
+  const changePrefs = (patchData) => savePrefs({ ...prefsRef.current, ...patchData })
+
+  const openToolMenu = (kind) => {
+    setCtxMenu(null)
+    setSceneMenu(null)
+    setToolMenu((cur) => {
+      if (cur && cur.kind === kind) return null
+      const at = lastMouseRef.current || { x: vpRect.width / 2 - 140, y: 80 }
+      const hovered = hoveredSceneRef.current
+      return {
+        kind,
+        x: at.x + 8,
+        y: at.y + 8,
+        sceneId: hovered || selectedSceneId,
+        hovered: !!hovered
+      }
+    })
+  }
+
+  // The menu keys. Re-registered every render so the actions always see the
+  // latest story; ignored while typing or while a new key is being chosen.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (window.__dknCapturingKey || isTypingTarget(e) || e.repeat) return
+      if (keyMatches(e, keys.wireMenu)) {
+        e.preventDefault()
+        openToolMenu('wire')
+      } else if (keyMatches(e, keys.sceneMenu)) {
+        e.preventDefault()
+        openToolMenu('scene')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const allSceneItems = board.chapters.flatMap((c) => c.scenes)
+  const sceneItem = (id) => allSceneItems.find((sc) => sc.scene.id === id) || null
+  const sceneLabel = (id) => {
+    const sc = sceneItem(id)
+    return sc ? sc.num + ' ' + (sc.scene.title || 'Scene') : 'Scene'
+  }
+  const wiresOn = (id) =>
+    (story.board?.links || []).filter((l) => l.fromSceneId === id || l.toSceneId === id).length
+
+  const wireOpts = () => ({ type: linkDraft.type, label: linkDraft.label.trim() })
+
+  const doConnectNext = (id) => {
+    const nextId = W.nextSceneId(story, id)
+    if (!nextId) return
+    if (W.areConnected(story, id, nextId)) {
+      showFlash('Already connected to ' + sceneLabel(nextId))
+      return
+    }
+    commit((s) => W.connectScenes(s, id, nextId, wireOpts()))
+    showFlash('⇢ Connected ' + sceneLabel(id) + ' → ' + sceneLabel(nextId))
+  }
+
+  const doAutoSequence = (chapterId) => {
+    const before = (story.board?.links || []).length
+    const next = W.autoSequence(story, { ...wireOpts(), chapterId })
+    const added = (next.board?.links || []).length - before
+    if (!added) {
+      showFlash('Everything is already wired in order')
+      return
+    }
+    commit(() => next)
+    showFlash('⛓ Added ' + added + ' wire' + (added === 1 ? '' : 's') + ' in story order')
+  }
+
+  const doBeautify = () => {
+    const r = W.beautifyWires(story)
+    commit(() => r.story)
+    const bits = []
+    if (r.removed) bits.push(r.removed + ' duplicate' + (r.removed === 1 ? '' : 's') + ' removed')
+    if (r.reordered) bits.push('ports untangled')
+    showFlash(
+      '✨ ' + (bits.length ? bits.join(' · ') : 'Wires already tidy — unused ports cleared')
+    )
+  }
+
+  const doArrange = () => {
+    const next = W.arrangeByWires(story)
+    commit(() => next)
+    setTimeout(() => fitBounds(B.boundsOf(next)), 0)
+    showFlash('▦ Cards arranged so every wire flows left → right')
+  }
+
+  const doDuplicate = (id) => {
+    const loc = B.findSceneLoc(story, id)
+    if (!loc) return
+    const p = B.effScenePos(loc.scene, loc.chapter, loc.chapterIndex)
+    const spot = G.autoPlace(G.buildBoardGraph(story), loc.chapter.id, p.x + 36, p.y + 36)
+    const r = W.duplicateScene(story, id, spot)
+    commit(() => r.story)
+    if (r.newId) onSelectScene(r.newId)
+    showFlash('⧉ Duplicated ' + sceneLabel(id))
+  }
+
+  const wireMenuItems = () => {
+    const sel = selectedLink
+    const scId = toolMenu?.sceneId
+    const sc = scId ? sceneItem(scId) : null
+    const nextId = sc ? W.nextSceneId(story, sc.scene.id) : null
+    const chapter = sc ? board.chapters.find((c) => c.scenes.includes(sc)) : null
+    const linkCount = (story.board?.links || []).length
+    return [
+      { header: 'Cut' },
+      {
+        icon: '✂',
+        label: 'Cut tool (knife)',
+        hint: 'drag a line across wires to cut them',
+        run: () => {
+          setSelectedLinkId(null)
+          setCutMode(true)
+        }
+      },
+      {
+        icon: '✕',
+        label: 'Delete selected wire',
+        hint: sel
+          ? sceneLabel(sel.link.fromSceneId) + ' → ' + sceneLabel(sel.link.toSceneId)
+          : 'click a wire first',
+        disabled: !sel,
+        run: () => {
+          commit((s) => B.removeLink(s, sel.link.id))
+          setSelectedLinkId(null)
+          showFlash('✕ Wire deleted')
+        }
+      },
+      {
+        icon: '⊘',
+        label: sc ? 'Disconnect ' + sc.num : 'Disconnect scene',
+        hint: sc ? 'remove all ' + wiresOn(sc.scene.id) + ' wire(s) on this scene' : 'no scene',
+        disabled: !sc || !wiresOn(sc.scene.id),
+        run: () => {
+          commit((s) => W.disconnectScene(s, sc.scene.id))
+          showFlash('⊘ Disconnected ' + sceneLabel(sc.scene.id))
+        }
+      },
+      { header: 'Connect' },
+      {
+        icon: '⇢',
+        label: 'Connect to next scene',
+        hint: sc && nextId ? sc.num + ' → ' + sceneLabel(nextId) : 'no next scene',
+        disabled: !sc || !nextId,
+        run: () => doConnectNext(sc.scene.id)
+      },
+      {
+        icon: '⤳',
+        label: 'Insert a scene into the selected wire',
+        hint: sel ? 'A → (pick a scene) → B' : 'click a wire first',
+        disabled: !sel,
+        list: sel
+          ? allSceneItems
+              .filter(
+                (x) => x.scene.id !== sel.link.fromSceneId && x.scene.id !== sel.link.toSceneId
+              )
+              .map((x) => ({
+                label: x.num + ' ' + (x.scene.title || 'Scene'),
+                run: () => {
+                  commit((s) => W.insertSceneIntoLink(s, sel.link.id, x.scene.id))
+                  setSelectedLinkId(null)
+                  showFlash('⤳ Inserted ' + x.num + ' into the wire')
+                }
+              }))
+          : []
+      },
+      {
+        icon: '⛓',
+        label: 'Auto sequence — whole story',
+        hint: 'wire every scene to the next, chapter by chapter',
+        disabled: allSceneItems.length < 2,
+        run: () => doAutoSequence(null)
+      },
+      {
+        icon: '⛓',
+        label: 'Auto sequence — this chapter',
+        hint: chapter ? chapter.chapter.title : 'no chapter',
+        disabled: !chapter || chapter.scenes.length < 2,
+        run: () => doAutoSequence(chapter.chapter.id)
+      },
+      { header: 'Tidy' },
+      {
+        icon: '✨',
+        label: 'Beautify wires',
+        hint: 'untangle ports, drop duplicates & unused ports',
+        disabled: !linkCount,
+        run: doBeautify
+      },
+      {
+        icon: '▦',
+        label: 'Arrange cards by wire flow',
+        hint: 'moves cards so every wire runs left → right',
+        disabled: !linkCount,
+        run: doArrange
+      },
+      { sep: true },
+      {
+        icon: '🗑',
+        label: 'Remove all wires',
+        hint: linkCount + ' wire' + (linkCount === 1 ? '' : 's') + ' on the board',
+        danger: true,
+        disabled: !linkCount,
+        run: () => {
+          if (!window.confirm('Remove all ' + linkCount + ' wires from the board?')) return
+          commit((s) => W.removeAllLinks(s))
+          setSelectedLinkId(null)
+          showFlash('🗑 All wires removed (Ctrl+Z to undo)')
+        }
+      }
+    ]
+  }
+
+  const sceneMenuItems = () => {
+    const sc = toolMenu?.sceneId ? sceneItem(toolMenu.sceneId) : null
+    if (!sc)
+      return [{ header: 'Click a scene card first, then press ' + describeKey(keys.sceneMenu) }]
+    const id = sc.scene.id
+    const nextId = W.nextSceneId(story, id)
+    const chId = board.chapters.find((c) => c.scenes.includes(sc))?.chapter.id
+    return [
+      { header: 'Open' },
+      {
+        icon: '✎',
+        label: 'Edit scene',
+        hint: 'open it in the Editor',
+        run: () => onOpenInEditor(id)
+      },
+      { icon: '🖼', label: 'Add photo', run: () => onAddPhoto(id) },
+      { header: 'Ports & wires' },
+      {
+        icon: '＋',
+        label: 'Add positive port',
+        hint: 'left side — wires come IN here',
+        run: () => commit((s) => B.addPort(s, id, 'pos'))
+      },
+      {
+        icon: '−',
+        label: 'Add negative port',
+        hint: 'right side — wires go OUT from here',
+        run: () => commit((s) => B.addPort(s, id, 'neg'))
+      },
+      {
+        icon: '⇢',
+        label: 'Connect to next scene',
+        hint: nextId ? '→ ' + sceneLabel(nextId) : 'no next scene',
+        disabled: !nextId,
+        run: () => doConnectNext(id)
+      },
+      {
+        icon: '⊘',
+        label: 'Disconnect all wires',
+        hint: wiresOn(id) + ' wire(s)',
+        disabled: !wiresOn(id),
+        run: () => {
+          commit((s) => W.disconnectScene(s, id))
+          showFlash('⊘ Disconnected ' + sceneLabel(id))
+        }
+      },
+      { header: 'Organise' },
+      {
+        icon: '🏷',
+        label: 'Add',
+        input: {
+          placeholder: 'Add a tag…',
+          onSubmit: (tag) => {
+            commit((s) => B.addTag(s, id, tag))
+            showFlash('🏷 Tag “' + tag + '” added')
+          }
+        }
+      },
+      {
+        icon: '📁',
+        label: 'Move to chapter',
+        disabled: story.chapters.length < 2,
+        list: story.chapters.map((c) => ({
+          label: c.title,
+          current: c.id === chId,
+          run: () => {
+            if (c.id !== chId) commit((s) => B.moveSceneToChapter(s, id, c.id))
+          }
+        }))
+      },
+      {
+        icon: '⧉',
+        label: 'Duplicate scene',
+        hint: 'a copy right next to it',
+        run: () => doDuplicate(id)
+      },
+      { sep: true },
+      { icon: '✕', label: 'Delete scene', danger: true, run: () => onDeleteScene(id) }
+    ]
+  }
+
+  // ---------- ✂ cut knife ----------
+
+  const onCutDown = (e) => {
+    if (e.button === 2) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const vr = viewportRef.current.getBoundingClientRect()
+    const x = e.clientX - vr.left
+    const y = e.clientY - vr.top
+    setCutLine({ x1: x, y1: y, x2: x, y2: y, c1: { x: e.clientX, y: e.clientY }, c2: null })
+  }
+
+  const onCutMove = (e) => {
+    if (!cutLine) return
+    const vr = viewportRef.current.getBoundingClientRect()
+    setCutLine((l) =>
+      l
+        ? {
+            ...l,
+            x2: e.clientX - vr.left,
+            y2: e.clientY - vr.top,
+            c2: { x: e.clientX, y: e.clientY }
+          }
+        : l
+    )
+  }
+
+  const onCutUp = () => {
+    const l = cutLine
+    setCutLine(null)
+    if (!l || !l.c2 || Math.hypot(l.x2 - l.x1, l.y2 - l.y1) < 6) return
+    const a = toWorld(l.c1.x, l.c1.y)
+    const b = toWorld(l.c2.x, l.c2.y)
+    const ids = board.links
+      .filter((it) =>
+        W.lineCutsPolyline(a, b, B.pointsAlong(it.from, it.to, it.bend, threadCurve, 32))
+      )
+      .map((it) => it.link.id)
+    if (!ids.length) {
+      showFlash('No wire crossed — drag the line across a wire')
+      return
+    }
+    commit((s) => W.removeLinks(s, ids))
+    if (ids.includes(selectedLinkId)) setSelectedLinkId(null)
+    showFlash('✂ Cut ' + ids.length + ' wire' + (ids.length === 1 ? '' : 's') + ' (Ctrl+Z to undo)')
+  }
+
   // ---------- render helpers ----------
 
   const selectedChapterId =
@@ -598,7 +980,67 @@ export default function Board({
             onChange={(e) => setLinkDraft({ ...linkDraft, label: e.target.value })}
           />
         </label>
+        <span className="board-sep" />
+        <button
+          className="board-tool-btn"
+          onClick={() => openToolMenu('wire')}
+          title={'Wire tools — or press ' + describeKey(keys.wireMenu)}
+        >
+          〰 Wires <kbd className="tool-kbd">{describeKey(keys.wireMenu)}</kbd>
+        </button>
+        <button
+          className="board-tool-btn"
+          onClick={() => openToolMenu('scene')}
+          title={'Scene tools — or press ' + describeKey(keys.sceneMenu)}
+        >
+          ▢ Scene <kbd className="tool-kbd">{describeKey(keys.sceneMenu)}</kbd>
+        </button>
+        <button
+          className={'board-tool-btn' + (cutMode ? ' active' : '')}
+          onClick={() => {
+            setCutMode((c) => !c)
+            setCutLine(null)
+          }}
+          title="Cut tool: drag a line across wires to cut them"
+        >
+          ✂ Cut
+        </button>
+        <button
+          className={'board-tool-btn' + (settingsOpen ? ' active' : '')}
+          onClick={() => setSettingsOpen((o) => !o)}
+          title="Shortcut keys and thread look"
+        >
+          ⚙ Settings
+        </button>
       </div>
+
+      {settingsOpen && (
+        <div className="tl-sens-panel" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="board-popover-head">
+            <span className="pop-title">Settings</span>
+            <button className="pop-close" onClick={() => setSettingsOpen(false)}>
+              ✕
+            </button>
+          </div>
+          <ShortcutSettings prefs={prefs} onChange={changePrefs} />
+          <div className="tl-sens-sep" />
+          <div className="tl-sens-sub">Threads on the Board</div>
+          <div className="tl-sens-row">
+            <label>
+              <span>Thread bend</span>
+              <span>{prefs.threadCurve}%</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={prefs.threadCurve}
+              onChange={(e) => changePrefs({ threadCurve: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      )}
 
       <div
         ref={viewportRef}
@@ -739,6 +1181,12 @@ export default function Board({
                 onPointerDown={(e) => onCardPointerDown(e, sc)}
                 onPointerMove={(e) => onCardPointerMove(e, sc)}
                 onPointerUp={(e) => onCardPointerUp(e, sc)}
+                onPointerEnter={() => {
+                  hoveredSceneRef.current = sc.scene.id
+                }}
+                onPointerLeave={() => {
+                  if (hoveredSceneRef.current === sc.scene.id) hoveredSceneRef.current = null
+                }}
                 onClick={() => onSelectScene(sc.scene.id)}
                 onDoubleClick={() => onOpenInEditor(sc.scene.id)}
                 onContextMenu={(e) => onSceneContextMenu(e, sc)}
@@ -1021,6 +1469,57 @@ export default function Board({
           </div>
         )}
 
+        {toolMenu && (
+          <ToolMenu
+            title={toolMenu.kind === 'wire' ? '〰 Wire tools' : '▢ Scene tools'}
+            subtitle={
+              toolMenu.sceneId && sceneItem(toolMenu.sceneId)
+                ? (toolMenu.kind === 'wire' ? 'Scene: ' : '') +
+                  sceneLabel(toolMenu.sceneId) +
+                  (toolMenu.hovered ? '  (under the mouse)' : '  (selected)')
+                : ''
+            }
+            x={toolMenu.x}
+            y={toolMenu.y}
+            bounds={vpRect}
+            menuKey={toolMenu.kind === 'wire' ? keys.wireMenu : keys.sceneMenu}
+            items={toolMenu.kind === 'wire' ? wireMenuItems() : sceneMenuItems()}
+            onClose={() => setToolMenu(null)}
+          />
+        )}
+
+        {cutMode && (
+          <div
+            className="cut-overlay"
+            onPointerDown={onCutDown}
+            onPointerMove={onCutMove}
+            onPointerUp={onCutUp}
+            onPointerCancel={() => setCutLine(null)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setCutMode(false)
+              setCutLine(null)
+            }}
+          >
+            <svg className="cut-svg">
+              {cutLine && (
+                <line
+                  x1={cutLine.x1}
+                  y1={cutLine.y1}
+                  x2={cutLine.x2}
+                  y2={cutLine.y2}
+                  className="cut-line"
+                />
+              )}
+            </svg>
+            <div className="cut-banner">
+              ✂ Cut mode — drag a line across wires to cut them · Esc or right-click to finish
+            </div>
+          </div>
+        )}
+
+        {flash && <div className="board-flash">{flash.text}</div>}
+
         <div className="board-legend">
           <span className="board-legend-title">Links</span>
           {B.PLUG_TYPES.map((t) => (
@@ -1032,9 +1531,9 @@ export default function Board({
         </div>
 
         <div className="board-hint">
-          Drag background to pan · Scroll to move · Ctrl+Scroll to zoom · Right-click a scene card
-          for its menu · Storyline wires flow negative → positive: drag from a − (right side) into a
-          + (left side)
+          Press {describeKey(keys.wireMenu)} for wire tools (cut, connect, auto sequence, beautify)
+          · Press {describeKey(keys.sceneMenu)} over a scene for scene tools · Drag from a − (right)
+          into a + (left) to wire · Ctrl+Scroll to zoom
         </div>
       </div>
     </div>

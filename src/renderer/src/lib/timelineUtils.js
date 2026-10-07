@@ -691,6 +691,72 @@ export function autoConnectTimeOrder(story) {
   return next
 }
 
+// ---------- Timeline wire tools (the W menu on the Timeline) ----------
+
+const tlWithLinks = (story, links) => ({
+  ...story,
+  timeline: { ...(story.timeline || {}), links }
+})
+
+export function removeTimelineLinks(story, ids) {
+  const set = new Set(ids)
+  if (!set.size) return story
+  return tlWithLinks(
+    story,
+    tlLinks(story).filter((l) => !set.has(l.id))
+  )
+}
+
+export function removeAllTimelineLinks(story) {
+  return tlWithLinks(story, [])
+}
+
+export function disconnectSceneTimeline(story, sceneId) {
+  return tlWithLinks(
+    story,
+    tlLinks(story).filter((l) => l.fromSceneId !== sceneId && l.toSceneId !== sceneId)
+  )
+}
+
+// The scene that comes right after this one in time (dated scenes only).
+export function nextInTime(story, sceneId) {
+  const dated = layoutFlow(story).cards.filter((c) => c.dated)
+  const i = dated.findIndex((c) => c.scene.id === sceneId)
+  return i >= 0 && i < dated.length - 1 ? dated[i + 1].scene.id : null
+}
+
+// A → C becomes A → B → C.
+export function insertIntoTimelineLink(story, linkId, sceneId) {
+  const link = tlLinks(story).find((l) => l.id === linkId)
+  if (!link || link.fromSceneId === sceneId || link.toSceneId === sceneId) return story
+  let next = removeTimelineLinks(story, [linkId])
+  next = addTimelineLink(next, link.fromSceneId, sceneId)
+  next = addTimelineLink(next, sceneId, link.toSceneId)
+  return next
+}
+
+// Tidy: drop duplicate wires and wires pointing at scenes that no longer
+// exist. Returns { story, removed }.
+export function cleanTimelineLinks(story) {
+  const ids = new Set(story.chapters.flatMap((c) => c.scenes.map((s) => s.id)))
+  const seen = new Set()
+  const keep = []
+  for (const l of tlLinks(story)) {
+    const key = l.fromSceneId + '>' + l.toSceneId
+    if (seen.has(key) || !ids.has(l.fromSceneId) || !ids.has(l.toSceneId)) continue
+    if (l.fromSceneId === l.toSceneId) continue
+    seen.add(key)
+    keep.push(l)
+  }
+  const removed = tlLinks(story).length - keep.length
+  return { story: removed ? tlWithLinks(story, keep) : story, removed }
+}
+
+// Throw away every timeline wire and wire the dated scenes in time order.
+export function rebuildTimeOrder(story) {
+  return autoConnectTimeOrder(removeAllTimelineLinks(story))
+}
+
 export function removeTimelineLink(story, linkId) {
   return {
     ...story,

@@ -1035,6 +1035,7 @@ function App() {
               selectedSceneId={selectedSceneId}
               onSelectScene={selectScene}
               onOpenInEditor={openInEditor}
+              onDeleteScene={handleDeleteScene}
               patch={patch}
               commit={commit}
               endSession={endSession}

@@ -2,9 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import * as T from '../lib/timelineUtils'
 import * as B from '../lib/boardUtils'
-import { getPrefs, savePrefs, PREFS_DEFAULTS } from '../lib/prefs'
+import {
+  getPrefs,
+  savePrefs,
+  PREFS_DEFAULTS,
+  keyMatches,
+  isTypingTarget,
+  describeKey
+} from '../lib/prefs'
 import { useCanvasView, useViewportSize, useWheelZoom } from '../lib/canvasView'
+import { lineCutsPolyline } from '../lib/wireTools'
 import SceneWhen from './SceneWhen'
+import ToolMenu from './ToolMenu'
+import ShortcutSettings from './ShortcutSettings'
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
@@ -96,6 +106,7 @@ export default function Timeline({
   selectedSceneId,
   onSelectScene,
   onOpenInEditor,
+  onDeleteScene,
   patch,
   commit,
   endSession
@@ -112,6 +123,13 @@ export default function Timeline({
   const [linkDrag, setLinkDrag] = useState(null) // wire being dragged
   const [selectedLinkId, setSelectedLinkId] = useState(null)
   const [chaptersOpen, setChaptersOpen] = useState(true)
+  // W / S tool menus, the ✂ cut knife, and a short status message.
+  const [toolMenu, setToolMenu] = useState(null)
+  const [cutMode, setCutMode] = useState(false)
+  const [cutLine, setCutLine] = useState(null)
+  const [flash, setFlash] = useState(null)
+  const hoveredSceneRef = useRef(null)
+  const lastMouseRef = useRef(null)
 
   const changePrefs = (patchData) => {
     const next = { ...prefsRef.current, ...patchData }
@@ -154,6 +172,9 @@ export default function Timeline({
         setSelectedLinkId(null)
         setLinkDrag(null)
         setWhenSceneId(null)
+        setToolMenu(null)
+        setCutMode(false)
+        setCutLine(null)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -168,9 +189,12 @@ export default function Timeline({
     e.currentTarget.setPointerCapture(e.pointerId)
     setSelectedLinkId(null)
     setWhenSceneId(null)
+    setToolMenu(null)
   }
 
   const onViewportPointerMove = (e) => {
+    const vr = viewportRef.current?.getBoundingClientRect()
+    if (vr) lastMouseRef.current = { x: e.clientX - vr.left, y: e.clientY - vr.top }
     if (!drag) return
     setView((v) => ({
       ...v,
@@ -249,6 +273,8 @@ export default function Timeline({
         from,
         to,
         d,
+        c1,
+        c2,
         mid,
         gap,
         color: gap && gap.backwards ? backColor : wireColor
@@ -279,6 +305,316 @@ export default function Timeline({
   const trackLineY = T.FLOW_TRACK_Y + T.FLOW_CARD_H / 2
   const datedCards = layout.cards.filter((c) => c.dated)
   const undatedCards = layout.cards.filter((c) => !c.dated)
+
+  // ---------- W / S tool menus ----------
+
+  const keys = { ...PREFS_DEFAULTS.keys, ...(prefs.keys || {}) }
+
+  const showFlash = (text) => {
+    setFlash((f) => ({ text, n: (f ? f.n : 0) + 1 }))
+  }
+
+  const openToolMenu = (kind) => {
+    setToolMenu((cur) => {
+      if (cur && cur.kind === kind) return null
+      const at = lastMouseRef.current || { x: vpRect.width / 2 - 140, y: 80 }
+      const hovered = hoveredSceneRef.current
+      return {
+        kind,
+        x: at.x + 8,
+        y: at.y + 8,
+        sceneId: hovered || selectedSceneId,
+        hovered: !!hovered
+      }
+    })
+  }
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (window.__dknCapturingKey || isTypingTarget(e) || e.repeat || setupOpen) return
+      if (keyMatches(e, keys.wireMenu)) {
+        e.preventDefault()
+        openToolMenu('wire')
+      } else if (keyMatches(e, keys.sceneMenu)) {
+        e.preventDefault()
+        openToolMenu('scene')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  // The status message fades out on its own.
+  useEffect(() => {
+    if (!flash) return
+    const t = setTimeout(() => setFlash(null), 2600)
+    return () => clearTimeout(t)
+  }, [flash])
+
+  const cardLabel = (id) => {
+    const c = layout.cardById.get(id)
+    return c ? c.num + ' ' + (c.scene.title || 'Scene') : 'Scene'
+  }
+  const tlWiresOn = (id) =>
+    T.tlLinks(story).filter((l) => l.fromSceneId === id || l.toSceneId === id).length
+
+  const doConnectNextInTime = (id) => {
+    const nextId = T.nextInTime(story, id)
+    if (!nextId) return
+    if (T.tlLinks(story).some((l) => l.fromSceneId === id && l.toSceneId === nextId)) {
+      showFlash('Already connected to ' + cardLabel(nextId))
+      return
+    }
+    commit((s) => T.addTimelineLink(s, id, nextId))
+    showFlash('⇢ Connected ' + cardLabel(id) + ' → ' + cardLabel(nextId))
+  }
+
+  const wireMenuItems = () => {
+    const sel = selectedWire
+    const id = toolMenu?.sceneId
+    const card = id ? layout.cardById.get(id) : null
+    const nextId = card && card.dated ? T.nextInTime(story, id) : null
+    const count = T.tlLinks(story).length
+    return [
+      { header: 'Cut' },
+      {
+        icon: '✂',
+        label: 'Cut tool (knife)',
+        hint: 'drag a line across wires to cut them',
+        run: () => {
+          setSelectedLinkId(null)
+          setCutMode(true)
+        }
+      },
+      {
+        icon: '✕',
+        label: 'Delete selected wire',
+        hint: sel ? sel.a.num + ' → ' + sel.b.num : 'click a wire first',
+        disabled: !sel,
+        run: () => {
+          commit((s) => T.removeTimelineLink(s, sel.link.id))
+          setSelectedLinkId(null)
+          showFlash('✕ Wire deleted')
+        }
+      },
+      {
+        icon: '⊘',
+        label: card ? 'Disconnect ' + card.num : 'Disconnect scene',
+        hint: card ? 'remove its ' + tlWiresOn(id) + ' timeline wire(s)' : 'no scene',
+        disabled: !card || !tlWiresOn(id),
+        run: () => {
+          commit((s) => T.disconnectSceneTimeline(s, id))
+          showFlash('⊘ Disconnected ' + cardLabel(id))
+        }
+      },
+      { header: 'Connect' },
+      {
+        icon: '⇢',
+        label: 'Connect to next scene in time',
+        hint: nextId
+          ? card.num + ' → ' + cardLabel(nextId)
+          : 'needs a dated scene with one after it',
+        disabled: !nextId,
+        run: () => doConnectNextInTime(id)
+      },
+      {
+        icon: '⤳',
+        label: 'Insert a scene into the selected wire',
+        hint: sel ? sel.a.num + ' → (pick) → ' + sel.b.num : 'click a wire first',
+        disabled: !sel,
+        list: sel
+          ? layout.cards
+              .filter((c) => c.scene.id !== sel.a.scene.id && c.scene.id !== sel.b.scene.id)
+              .map((c) => ({
+                label: c.num + ' ' + (c.scene.title || 'Scene') + (c.dated ? '' : ' (no date)'),
+                run: () => {
+                  commit((s) => T.insertIntoTimelineLink(s, sel.link.id, c.scene.id))
+                  setSelectedLinkId(null)
+                  showFlash('⤳ Inserted ' + c.num + ' into the wire')
+                }
+              }))
+          : []
+      },
+      {
+        icon: '⛓',
+        label: 'Auto sequence in time order',
+        hint: 'wire each dated scene to the next one (keeps existing wires)',
+        disabled: layout.datedCount < 2,
+        run: () => {
+          const next = T.autoConnectTimeOrder(story)
+          const added = T.tlLinks(next).length - count
+          if (!added) {
+            showFlash('Everything is already wired in time order')
+            return
+          }
+          commit(() => next)
+          showFlash('⛓ Added ' + added + ' wire' + (added === 1 ? '' : 's') + ' in time order')
+        }
+      },
+      { header: 'Tidy' },
+      {
+        icon: '✨',
+        label: 'Beautify — rebuild in time order',
+        hint: 'replace all wires with one clean chain by date',
+        disabled: layout.datedCount < 2,
+        run: () => {
+          if (
+            count &&
+            !window.confirm(
+              'Replace all ' + count + ' timeline wires with one clean chain in time order?'
+            )
+          )
+            return
+          commit((s) => T.rebuildTimeOrder(s))
+          showFlash('✨ Wires rebuilt in time order (Ctrl+Z to undo)')
+        }
+      },
+      {
+        icon: '🧹',
+        label: 'Clean up wires',
+        hint: 'remove duplicates and broken wires',
+        disabled: !count,
+        run: () => {
+          const r = T.cleanTimelineLinks(story)
+          if (!r.removed) {
+            showFlash('Wires are already clean')
+            return
+          }
+          commit(() => r.story)
+          showFlash(
+            '🧹 Removed ' + r.removed + ' duplicate/broken wire' + (r.removed === 1 ? '' : 's')
+          )
+        }
+      },
+      { sep: true },
+      {
+        icon: '🗑',
+        label: 'Remove all timeline wires',
+        hint: count + ' wire' + (count === 1 ? '' : 's'),
+        danger: true,
+        disabled: !count,
+        run: () => {
+          if (!window.confirm('Remove all ' + count + ' timeline wires?')) return
+          commit((s) => T.removeAllTimelineLinks(s))
+          setSelectedLinkId(null)
+          showFlash('🗑 All timeline wires removed (Ctrl+Z to undo)')
+        }
+      }
+    ]
+  }
+
+  const sceneMenuItems = () => {
+    const id = toolMenu?.sceneId
+    const card = id ? layout.cardById.get(id) : null
+    if (!card) {
+      return [{ header: 'Click a scene card first, then press ' + describeKey(keys.sceneMenu) }]
+    }
+    const nextId = card.dated ? T.nextInTime(story, id) : null
+    return [
+      { header: 'When' },
+      {
+        icon: '🕰',
+        label: card.dated ? 'Change date & time' : 'Set date & time',
+        hint: card.dated ? T.formatWhen(cal, card.scene.timeline) : 'Year · Month · Day · Time',
+        run: () => {
+          setSelectedLinkId(null)
+          setWhenSceneId(id)
+        }
+      },
+      {
+        icon: '⌫',
+        label: 'Clear date',
+        hint: 'moves it to "Not dated yet"',
+        disabled: !card.dated,
+        run: () => {
+          commit((s) => T.setSceneWhen(s, id, null))
+          showFlash('⌫ Date cleared from ' + card.num)
+        }
+      },
+      { header: 'Wires' },
+      {
+        icon: '⇢',
+        label: 'Connect to next scene in time',
+        hint: nextId ? '→ ' + cardLabel(nextId) : 'needs a later dated scene',
+        disabled: !nextId,
+        run: () => doConnectNextInTime(id)
+      },
+      {
+        icon: '⊘',
+        label: 'Disconnect timeline wires',
+        hint: tlWiresOn(id) + ' wire(s)',
+        disabled: !tlWiresOn(id),
+        run: () => {
+          commit((s) => T.disconnectSceneTimeline(s, id))
+          showFlash('⊘ Disconnected ' + cardLabel(id))
+        }
+      },
+      { header: 'Scene' },
+      {
+        icon: '✎',
+        label: 'Edit scene',
+        hint: 'open it in the Editor',
+        run: () => onOpenInEditor(id)
+      },
+      { sep: true },
+      {
+        icon: '✕',
+        label: 'Delete scene',
+        danger: true,
+        disabled: !onDeleteScene,
+        run: () => onDeleteScene(id)
+      }
+    ]
+  }
+
+  // ---------- ✂ cut knife ----------
+
+  const onCutDown = (e) => {
+    if (e.button === 2) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const vr = viewportRef.current.getBoundingClientRect()
+    const x = e.clientX - vr.left
+    const y = e.clientY - vr.top
+    setCutLine({ x1: x, y1: y, x2: x, y2: y, c1: { x: e.clientX, y: e.clientY }, c2: null })
+  }
+
+  const onCutMove = (e) => {
+    if (!cutLine) return
+    const vr = viewportRef.current.getBoundingClientRect()
+    setCutLine((l) =>
+      l
+        ? {
+            ...l,
+            x2: e.clientX - vr.left,
+            y2: e.clientY - vr.top,
+            c2: { x: e.clientX, y: e.clientY }
+          }
+        : l
+    )
+  }
+
+  const onCutUp = () => {
+    const l = cutLine
+    setCutLine(null)
+    if (!l || !l.c2 || Math.hypot(l.x2 - l.x1, l.y2 - l.y1) < 6) return
+    const a = toWorld(l.c1.x, l.c1.y)
+    const b = toWorld(l.c2.x, l.c2.y)
+    const ids = wires
+      .filter((w) => {
+        const pts = []
+        for (let i = 0; i <= 32; i++) pts.push(T.cubicPoint(w.from, w.c1, w.c2, w.to, i / 32))
+        return lineCutsPolyline(a, b, pts)
+      })
+      .map((w) => w.link.id)
+    if (!ids.length) {
+      showFlash('No wire crossed — drag the line across a wire')
+      return
+    }
+    commit((s) => T.removeTimelineLinks(s, ids))
+    if (ids.includes(selectedLinkId)) setSelectedLinkId(null)
+    showFlash('✂ Cut ' + ids.length + ' wire' + (ids.length === 1 ? '' : 's') + ' (Ctrl+Z to undo)')
+  }
 
   return (
     <div className="board">
@@ -325,9 +661,33 @@ export default function Timeline({
         </button>
         <span className="board-sep" />
         <button
+          className="board-tool-btn"
+          onClick={() => openToolMenu('wire')}
+          title={'Wire tools — or press ' + describeKey(keys.wireMenu)}
+        >
+          〰 Wires <kbd className="tool-kbd">{describeKey(keys.wireMenu)}</kbd>
+        </button>
+        <button
+          className="board-tool-btn"
+          onClick={() => openToolMenu('scene')}
+          title={'Scene tools — or press ' + describeKey(keys.sceneMenu)}
+        >
+          ▢ Scene <kbd className="tool-kbd">{describeKey(keys.sceneMenu)}</kbd>
+        </button>
+        <button
+          className={'board-tool-btn' + (cutMode ? ' active' : '')}
+          onClick={() => {
+            setCutMode((c) => !c)
+            setCutLine(null)
+          }}
+          title="Cut tool: drag a line across wires to cut them"
+        >
+          ✂ Cut
+        </button>
+        <button
           className={'board-tool-btn' + (sensOpen ? ' active' : '')}
           onClick={() => setSensOpen((o) => !o)}
-          title="Board & timeline settings — scrolling and zooming"
+          title="Shortcut keys, scrolling and zooming"
         >
           ⚙ Settings
         </button>
@@ -369,6 +729,8 @@ export default function Timeline({
               onChange={(e) => changePrefs({ zoomStep: Number(e.target.value) })}
             />
           </div>
+          <div className="tl-sens-sep" />
+          <ShortcutSettings prefs={prefs} onChange={changePrefs} />
           <div className="tl-sens-sep" />
           <div className="tl-sens-sub">Threads on the Board</div>
           <div className="tl-sens-row">
@@ -485,7 +847,16 @@ export default function Timeline({
                   height: card.h,
                   borderColor: B.hexToRgba(color, 0.7)
                 }}
-                onPointerDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => {
+                  e.stopPropagation()
+                  setToolMenu(null)
+                }}
+                onPointerEnter={() => {
+                  hoveredSceneRef.current = card.scene.id
+                }}
+                onPointerLeave={() => {
+                  if (hoveredSceneRef.current === card.scene.id) hoveredSceneRef.current = null
+                }}
                 onClick={(e) => {
                   e.stopPropagation()
                   onSelectScene(card.scene.id)
@@ -744,9 +1115,61 @@ export default function Timeline({
           </div>
         )}
 
+        {toolMenu && (
+          <ToolMenu
+            title={toolMenu.kind === 'wire' ? '〰 Timeline wire tools' : '▢ Scene tools'}
+            subtitle={
+              toolMenu.sceneId && layout.cardById.get(toolMenu.sceneId)
+                ? (toolMenu.kind === 'wire' ? 'Scene: ' : '') +
+                  cardLabel(toolMenu.sceneId) +
+                  (toolMenu.hovered ? '  (under the mouse)' : '  (selected)')
+                : ''
+            }
+            x={toolMenu.x}
+            y={toolMenu.y}
+            bounds={vpRect}
+            menuKey={toolMenu.kind === 'wire' ? keys.wireMenu : keys.sceneMenu}
+            items={toolMenu.kind === 'wire' ? wireMenuItems() : sceneMenuItems()}
+            onClose={() => setToolMenu(null)}
+          />
+        )}
+
+        {cutMode && (
+          <div
+            className="cut-overlay"
+            onPointerDown={onCutDown}
+            onPointerMove={onCutMove}
+            onPointerUp={onCutUp}
+            onPointerCancel={() => setCutLine(null)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setCutMode(false)
+              setCutLine(null)
+            }}
+          >
+            <svg className="cut-svg">
+              {cutLine && (
+                <line
+                  x1={cutLine.x1}
+                  y1={cutLine.y1}
+                  x2={cutLine.x2}
+                  y2={cutLine.y2}
+                  className="cut-line"
+                />
+              )}
+            </svg>
+            <div className="cut-banner">
+              ✂ Cut mode — drag a line across wires to cut them · Esc or right-click to finish
+            </div>
+          </div>
+        )}
+
+        {flash && <div className="board-flash">{flash.text}</div>}
+
         <div className="board-hint">
-          Click a scene to set its Year · Month · Day · Time · Drag a − dot into another
-          scene&apos;s ＋ dot to connect the story in time · Every wire shows the time gap
+          Press {describeKey(keys.wireMenu)} for wire tools · Press {describeKey(keys.sceneMenu)}{' '}
+          over a scene for scene tools · Click a scene to set its date · Drag a − dot into a ＋ dot
+          to connect the story in time
         </div>
       </div>
 
@@ -798,6 +1221,7 @@ Timeline.propTypes = {
   selectedSceneId: PropTypes.string,
   onSelectScene: PropTypes.func.isRequired,
   onOpenInEditor: PropTypes.func.isRequired,
+  onDeleteScene: PropTypes.func,
   patch: PropTypes.func.isRequired,
   commit: PropTypes.func.isRequired,
   endSession: PropTypes.func.isRequired

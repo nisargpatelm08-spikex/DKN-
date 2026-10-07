@@ -8,7 +8,59 @@ export const PREFS_DEFAULTS = {
   zoomStep: 1.07,
   // Thread bend of Board links, 0–100 (the same idea as Blender's
   // "Noodle Curving": 0 = perfectly straight threads, 100 = very curvy).
-  threadCurve: 50
+  threadCurve: 50,
+  // Shortcut keys for the tool menus on the Board and Timeline. The user can
+  // change them in ⚙ Settings ▸ Shortcut keys.
+  keys: { wireMenu: 'w', sceneMenu: 's' }
+}
+
+// Keys that can't be used as a menu shortcut (they already do something).
+export const RESERVED_KEYS = [
+  'escape',
+  'enter',
+  'tab',
+  'backspace',
+  'delete',
+  ' ',
+  'shift',
+  'control',
+  'alt',
+  'meta',
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9'
+]
+
+export const SHORTCUT_ACTIONS = [
+  { id: 'wireMenu', label: 'Wire tools menu', hint: 'cut, connect, auto sequence, beautify' },
+  { id: 'sceneMenu', label: 'Scene tools menu', hint: 'edit, ports, tags, duplicate, delete…' }
+]
+
+// "w" -> "W", " " -> "Space", "F2" stays "F2".
+export function describeKey(key) {
+  if (!key) return '—'
+  if (key === ' ') return 'Space'
+  return key.length === 1 ? key.toUpperCase() : key
+}
+
+// Does this keyboard event press the given shortcut (no Ctrl/Alt/⌘ held)?
+export function keyMatches(e, key) {
+  if (!key || e.ctrlKey || e.metaKey || e.altKey) return false
+  return String(e.key).toLowerCase() === String(key).toLowerCase()
+}
+
+// True while the user is typing in a text box — shortcuts must not fire then.
+export function isTypingTarget(e) {
+  const el = e.target
+  if (!el || !el.tagName) return false
+  const tag = el.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable
 }
 
 // Broadcasts every prefs save so open windows (Board, Timeline) can react
@@ -23,7 +75,14 @@ export function getPrefs() {
   }
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return { ...PREFS_DEFAULTS, ...JSON.parse(raw) }
+    if (raw) {
+      const saved = JSON.parse(raw)
+      return {
+        ...PREFS_DEFAULTS,
+        ...saved,
+        keys: { ...PREFS_DEFAULTS.keys, ...(saved && saved.keys ? saved.keys : {}) }
+      }
+    }
   } catch {
     /* corrupted value — fall through to defaults */
   }
