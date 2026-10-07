@@ -915,7 +915,9 @@ li:has(.scene-item.drag-over) {
 
 .board-card.selected {
   border-color: var(--accent-strong);
-  box-shadow: 0 0 0 2px rgba(224, 162, 60, 0.35), 0 6px 22px rgba(0, 0, 0, 0.55);
+  box-shadow:
+    0 0 0 2px rgba(224, 162, 60, 0.35),
+    0 6px 22px rgba(0, 0, 0, 0.55);
 }
 
 .board-card-bar {
@@ -966,42 +968,64 @@ li:has(.scene-item.drag-over) {
   min-width: 0;
 }
 
-.board-addplug {
-  position: absolute;
-  right: 6px;
-  top: 38px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--accent-strong);
-  cursor: pointer;
-  font-size: 11px;
-  line-height: 1;
-  z-index: 4;
-}
+/* ---------- ports (positive left · negative right) ---------- */
 
-.board-addplug:hover {
-  border-color: var(--accent);
-}
-
-/* ---------- plugs ---------- */
-
-.board-plug {
+.board-port {
   position: absolute;
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--panel);
-  border: 3px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
   cursor: crosshair;
-  z-index: 3;
+  z-index: 4;
+  user-select: none;
+  border: 2px solid var(--panel);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+  color: #fff;
 }
 
-.board-plug.snap {
+.board-port:hover {
+  transform: scale(1.18);
+}
+
+.board-port.pos {
+  background: #2f9e62;
+  border-color: #43b581;
+}
+
+.board-port.neg {
+  background: #c43d3e;
+  border-color: #e8595a;
+}
+
+.board-port.snap {
   outline: 3px solid rgba(224, 162, 60, 0.65);
-  outline-offset: 3px;
+  outline-offset: 2px;
+}
+
+.board-card-tags {
+  position: absolute;
+  left: 8px;
+  top: 48px;
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 16px);
+  pointer-events: none;
+}
+
+.board-card-tag {
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: rgba(224, 162, 60, 0.18);
+  border: 1px solid rgba(224, 162, 60, 0.45);
+  color: var(--accent-strong);
 }
 
 /* ---------- links ---------- */
@@ -1760,4 +1784,157 @@ textarea.tl-input {
 
 .tl-slot-select:focus {
   border-color: var(--accent);
+}
+
+/* ---------- timeline wires (actual story, flow negative → positive) ---------- */
+
+.tl-wires {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.tl-wire {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.tl-wire-soft {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.tl-wire-hit {
+  fill: none;
+  stroke-width: 14;
+  stroke: transparent;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
+.tl-wire-ghost {
+  stroke-width: 3;
+  stroke-dasharray: 7 6;
+  opacity: 0.85;
+}
+
+.tl-snapring {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  border: 2px solid var(--accent-strong);
+  border-radius: 50%;
+  background: rgba(224, 162, 60, 0.15);
+  pointer-events: none;
+  z-index: 7;
+}
+
+.tl-wire-pop-line {
+  font-size: 12px;
+  color: var(--ink);
+  padding: 2px 0;
+}
+
+/* ---------- timeline chip ports (drag to connect the actual story) ---------- */
+
+.tl-chip-dot {
+  position: absolute;
+  top: calc(50% - 7px);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: crosshair;
+  z-index: 5;
+  user-select: none;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  border: 1.5px solid var(--panel);
+}
+
+.tl-chip-dot.pos {
+  left: -7px;
+  background: #2f9e62;
+  border-color: #43b581;
+}
+
+.tl-chip-dot.neg {
+  right: -7px;
+  background: #c43d3e;
+  border-color: #e8595a;
+}
+
+.tl-chip-dot:hover {
+  transform: scale(1.2);
+}
+
+/* ---------- scene right-click menu extras ---------- */
+
+.board-ctxmenu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 2px;
+}
+
+.board-ctxmenu-item.danger {
+  color: #ff8a8a;
+}
+
+.board-ctxmenu-item.danger:hover {
+  background: rgba(232, 89, 90, 0.16);
+  border-color: #e8595a;
+}
+
+.board-ctxmenu-tag {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.board-ctxmenu-none {
+  color: var(--ink-soft);
+  font-size: 11px;
+  padding: 2px 8px 6px;
+}
+
+.board-ctxmenu-tagrow {
+  display: flex;
+  gap: 4px;
+  padding: 2px 4px 4px;
+  align-items: center;
+}
+
+.tag-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: var(--sans);
+  outline: none;
+}
+
+.tag-input:focus {
+  border-color: var(--accent);
+}
+
+/* Scenes are wired edge-to-edge, so the card must never clip its ports. */
+.board-card {
+  overflow: visible;
 }

@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import * as B from '../lib/boardUtils'
-import * as T from '../lib/timelineUtils'
 import { getPrefs, PREFS_EVENT, PREFS_DEFAULTS } from '../lib/prefs'
 import { WORLD, WORLD_HALF, useCanvasView, useViewportSize, useWheelZoom } from '../lib/canvasView'
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-const typeOf = (id) => B.PLUG_TYPE_MAP[id] || B.PLUG_TYPE_MAP[B.DEFAULT_PLUG_TYPE]
+const typeOf = (id) => B.PLUG_TYPE_MAP[id] || B.PLUG_TYPE_MAP[B.DEFAULT_LINK_TYPE]
 
 export default function Board({
   story,
@@ -16,6 +15,8 @@ export default function Board({
   onAddScene,
   onAddSceneAt,
   onAddChapterAt,
+  onDeleteScene,
+  onAddPhoto,
   commit,
   patch,
   endSession
@@ -24,11 +25,10 @@ export default function Board({
   const vpRect = useViewportSize(viewportRef)
   const { view, setView, toWorld, toScreen, zoomAt, zoomBy, fitBounds } = useCanvasView(viewportRef)
   const [drag, setDrag] = useState(null)
-  const [plugPopover, setPlugPopover] = useState(null) // sceneId
   const [selectedLinkId, setSelectedLinkId] = useState(null)
   const [ctxMenu, setCtxMenu] = useState(null) // { x, y, worldX, worldY, chapter }
-  const [linkDraft, setLinkDraft] = useState({ type: B.DEFAULT_PLUG_TYPE, label: '' })
-  const [plugDraft, setPlugDraft] = useState({ side: 'left', type: B.DEFAULT_PLUG_TYPE, label: '', note: '' })
+  const [sceneMenu, setSceneMenu] = useState(null) // { sceneId, x, y, tag }
+  const [linkDraft, setLinkDraft] = useState({ type: B.DEFAULT_LINK_TYPE, label: '' })
   // Preferences react to live changes (e.g. the Thread bend slider in the
   // Timeline's Settings panel redraws the threads as it moves).
   const [prefs, setPrefs] = useState(getPrefs)
@@ -49,7 +49,8 @@ export default function Board({
     const cy = e.clientY - rect.top
     const p = prefsRef.current
     if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? p.zoomStep : 1 / p.zoomStep, cx, cy)
-    else setView((v) => ({ ...v, tx: v.tx - e.deltaX * p.panSpeed, ty: v.ty - e.deltaY * p.panSpeed }))
+    else
+      setView((v) => ({ ...v, tx: v.tx - e.deltaX * p.panSpeed, ty: v.ty - e.deltaY * p.panSpeed }))
   })
 
   // ---------- derived data ----------
@@ -71,27 +72,31 @@ export default function Board({
             y: pos.y,
             num: `${ci + 1}.${si + 1}`,
             color: B.zoneColor(ci),
-            plugs: B.plugPoints(scene, chapter, ci)
+            ports: B.effPorts(scene, chapter, ci)
           }
         })
       }
     })
-    const plugLookup = new Map()
+    const portLookup = new Map()
     chapters.forEach((c) =>
-      c.scenes.forEach((sc) => sc.plugs.forEach((p) => plugLookup.set(sc.scene.id + ':' + p.id, p)))
+      c.scenes.forEach((sc) =>
+        sc.ports.forEach((p) => portLookup.set(sc.scene.id + ':' + p.portId, p))
+      )
     )
+    // Storyline wires. A wire always flows from a NEGATIVE port (right edge)
+    // of its "from" scene into a POSITIVE port (left edge) of its "to" scene.
     const links = (story.board?.links || []).flatMap((link) => {
-      const from = plugLookup.get(link.from?.sceneId + ':' + link.from?.plugId)
-      const to = plugLookup.get(link.to?.sceneId + ':' + link.to?.plugId)
-      if (!from || !to) return []
+      const from = portLookup.get(link.fromSceneId + ':' + link.fromPortId)
+      const to = portLookup.get(link.toSceneId + ':' + link.toPortId)
+      if (!from || !to || from.pole !== 'neg' || to.pole !== 'pos') return []
       return [{ link, from, to, type: typeOf(link.type) }]
     })
     // Threads between the same two scenes are fanned into lanes, so no two
     // threads are ever drawn exactly on top of each other.
     const groups = new Map()
     links.forEach((it) => {
-      const a = it.link.from.sceneId
-      const b = it.link.to.sceneId
+      const a = it.link.fromSceneId
+      const b = it.link.toSceneId
       const key = a < b ? a + '|' + b : b + '|' + a
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key).push(it)
@@ -110,11 +115,11 @@ export default function Board({
         it.mid = B.midOf(it.from, it.to, it.bend, threadCurve)
       })
     })
-    return { chapters, links }
+    return { chapters, links, portLookup }
   }, [story, prefs])
 
-  const allPlugs = useMemo(
-    () => board.chapters.flatMap((c) => c.scenes.flatMap((sc) => sc.plugs)),
+  const allPorts = useMemo(
+    () => board.chapters.flatMap((c) => c.scenes.flatMap((sc) => sc.ports)),
     [board]
   )
 
@@ -134,18 +139,21 @@ export default function Board({
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        setPlugPopover(null)
         setSelectedLinkId(null)
         setCtxMenu(null)
+        setSceneMenu(null)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Close the right-click menu when the user clicks anywhere else.
+  // Close the right-click menus when the user clicks anywhere else.
   useEffect(() => {
-    const close = () => setCtxMenu(null)
+    const close = () => {
+      setCtxMenu(null)
+      setSceneMenu(null)
+    }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [])
@@ -162,15 +170,19 @@ export default function Board({
       ty: view.ty
     })
     e.currentTarget.setPointerCapture(e.pointerId)
-    setPlugPopover(null)
     setSelectedLinkId(null)
     setCtxMenu(null)
+    setSceneMenu(null)
   }
 
   const onViewportPointerMove = (e) => {
     const d = drag
     if (d && d.kind === 'pan') {
-      setView((v) => ({ ...v, tx: d.tx + (e.clientX - d.startX), ty: d.ty + (e.clientY - d.startY) }))
+      setView((v) => ({
+        ...v,
+        tx: d.tx + (e.clientX - d.startX),
+        ty: d.ty + (e.clientY - d.startY)
+      }))
     }
   }
 
@@ -196,12 +208,13 @@ export default function Board({
   const onCardPointerMove = (e, sc) => {
     const d = drag
     if (!d || d.kind !== 'card' || d.sceneId !== sc.scene.id) return
-    const moved =
-      Math.abs(e.clientX - d.startClient.x) + Math.abs(e.clientY - d.startClient.y) > 4
+    const moved = Math.abs(e.clientX - d.startClient.x) + Math.abs(e.clientY - d.startClient.y) > 4
     if (moved) {
       const dx = (e.clientX - d.startClient.x) / view.scale
       const dy = (e.clientY - d.startClient.y) / view.scale
-      patch((s) => B.setScenePos(s, d.sceneId, Math.round(d.startPos.x + dx), Math.round(d.startPos.y + dy)))
+      patch((s) =>
+        B.setScenePos(s, d.sceneId, Math.round(d.startPos.x + dx), Math.round(d.startPos.y + dy))
+      )
       setDrag((prev) => (prev && prev.kind === 'card' ? { ...prev, moved: true } : prev))
     }
   }
@@ -272,47 +285,48 @@ export default function Board({
     endSession()
   }
 
-  // ---------- link drawing ----------
+  // ---------- wire drawing (drag from a port) ----------
 
-  const onPlugPointerDown = (e, sc, plug) => {
+  const onPortPointerDown = (e, port) => {
     e.stopPropagation()
     e.preventDefault()
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
     setSelectedLinkId(null)
-    setPlugPopover(null)
+    setSceneMenu(null)
+    setCtxMenu(null)
     setDrag({
       kind: 'link',
-      fromSceneId: sc.scene.id,
-      fromPlugId: plug.id,
-      fromX: plug.x,
-      fromY: plug.y,
-      fromSide: plug.side,
-      worldX: plug.x,
-      worldY: plug.y,
+      fromSceneId: port.sceneId,
+      fromPortId: port.portId,
+      fromPole: port.pole,
+      fromX: port.x,
+      fromY: port.y,
+      worldX: port.x,
+      worldY: port.y,
       snap: null,
       fallback: null
     })
   }
 
-  const onPlugPointerMove = (e) => {
+  const onPortPointerMove = (e) => {
     const d = drag
     if (!d || d.kind !== 'link') return
     const w = toWorld(e.clientX, e.clientY)
-    // Strong snap: another plug close enough that you clearly aimed at it.
+    // Strong snap: a port close enough that you clearly aimed at it.
     const snapT = 30 / view.scale
     let snap = null
-    for (const p of allPlugs) {
-      if (p.sceneId === d.fromSceneId && p.id === d.fromPlugId) continue
+    for (const p of allPorts) {
+      if (p.sceneId === d.fromSceneId && p.portId === d.fromPortId) continue
       const dist = Math.hypot(p.x - w.x, p.y - w.y)
       if (dist < snapT && (!snap || dist < snap.dist)) snap = { ...p, dist }
     }
-    // Soft target: no strong snap, but there's a plug nearby you're pointed at.
+    // Soft target: no strong snap, but there's a port nearby you're pointed at.
     let fallback = null
     if (!snap) {
       const farT = 150 / view.scale
-      for (const p of allPlugs) {
-        if (p.sceneId === d.fromSceneId && p.id === d.fromPlugId) continue
+      for (const p of allPorts) {
+        if (p.sceneId === d.fromSceneId && p.portId === d.fromPortId) continue
         const dist = Math.hypot(p.x - w.x, p.y - w.y)
         if (dist < farT && (!fallback || dist < fallback.dist)) fallback = { ...p, dist }
       }
@@ -320,15 +334,6 @@ export default function Board({
     setDrag((prev) =>
       prev && prev.kind === 'link' ? { ...prev, worldX: w.x, worldY: w.y, snap, fallback } : prev
     )
-  }
-
-  const pickSide = (wx, wy, sc) => {
-    const cx = sc.x + B.CARD_W / 2
-    const cy = sc.y + B.CARD_H / 2
-    const dx = wx - cx
-    const dy = wy - cy
-    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left'
-    return dy >= 0 ? 'bottom' : 'top'
   }
 
   const nearestSceneTo = (wx, wy) => {
@@ -344,103 +349,123 @@ export default function Board({
     return best
   }
 
-  const onPlugPointerUp = () => {
+  // Connect a wire from { fromSceneId, fromPortId } into scene bSceneId,
+  // creating the missing opposite-pole port on it when needed. Pure helper:
+  // the wire is negative → positive, whichever way the user dragged it.
+  const wireInto = (s, fromSceneId, fromPortId, bSceneId, fromPole) => {
+    const needPole = fromPole === 'neg' ? 'pos' : 'neg'
+    let next = s
+    let pid = B.findSceneLoc(next, bSceneId)?.scene.board?.[needPole]?.[0] || null
+    if (!pid) {
+      next = B.addPort(next, bSceneId, needPole)
+      const loc = B.findSceneLoc(next, bSceneId)
+      pid = loc.scene.board[needPole].slice(-1)[0]
+    }
+    return B.addLink(next, {
+      aSceneId: fromSceneId,
+      aPortId: fromPortId,
+      bSceneId,
+      bPortId: pid,
+      type: linkDraft.type,
+      label: linkDraft.label.trim()
+    })
+  }
+
+  const onPortPointerUp = () => {
     const d = drag
     if (!d || d.kind !== 'link') return
     setDrag(null)
+    const fromSceneId = d.fromSceneId
+    const fromPortId = d.fromPortId
     const target = d.snap || d.fallback
-    if (target) {
-      // Perfect: the wire lands on a real plug dot.
-      patch((s) =>
-        B.addLink(s, {
-          from: { sceneId: d.fromSceneId, plugId: d.fromPlugId },
-          to: { sceneId: target.sceneId, plugId: target.plugId },
-          type: linkDraft.type,
-          label: linkDraft.label.trim()
-        })
-      )
-    } else {
-      // No plug nearby: attach to the closest scene and give it a matching plug
-      // so the link is never left hanging in mid-air.
-      const tsc = nearestSceneTo(d.worldX, d.worldY)
-      if (tsc) {
-        patch((s) => {
-          let next = s
-          const loc = B.findSceneLoc(next, tsc.sc.scene.id)
-          if (!loc) return s
-          let plug = (loc.scene.board?.plugs || []).find((p) => p.type === linkDraft.type)
-          if (!plug) {
-            next = B.addPlug(next, tsc.sc.scene.id, {
-              side: pickSide(d.worldX, d.worldY, tsc.sc),
-              type: linkDraft.type,
-              label: ''
-            })
-            const loc2 = B.findSceneLoc(next, tsc.sc.scene.id)
-            plug = (loc2?.scene.board?.plugs || []).find((p) => p.type === linkDraft.type) || null
-          }
-          if (!plug) return s
-          return B.addLink(next, {
-            from: { sceneId: d.fromSceneId, plugId: d.fromPlugId },
-            to: { sceneId: tsc.sc.scene.id, plugId: plug.id },
+    // 1) Landed on another scene's port: connect if polarity allows, or aim
+    //    at the opposite pole of that scene (negative always into positive).
+    if (target && target.sceneId !== fromSceneId) {
+      if (B.normalizeEnds(story, fromSceneId, fromPortId, target.sceneId, target.portId)) {
+        patch((s) =>
+          B.addLink(s, {
+            aSceneId: fromSceneId,
+            aPortId: fromPortId,
+            bSceneId: target.sceneId,
+            bPortId: target.portId,
             type: linkDraft.type,
             label: linkDraft.label.trim()
           })
-        })
+        )
+        endSession()
+        return
+      }
+      patch((s) => wireInto(s, fromSceneId, fromPortId, target.sceneId, d.fromPole))
+      endSession()
+      return
+    }
+    // 2) Dropped on empty canvas: attach to the nearest scene (no wire ever
+    //    hangs in mid-air).
+    const tsc = nearestSceneTo(d.worldX, d.worldY)
+    if (tsc && tsc.sc.scene.id !== fromSceneId) {
+      const cx = tsc.sc.x + B.CARD_W / 2
+      const cy = tsc.sc.y + B.CARD_H / 2
+      const far = 190 / view.scale
+      if (Math.hypot(cx - d.worldX, cy - d.worldY) < far) {
+        patch((s) => wireInto(s, fromSceneId, fromPortId, tsc.sc.scene.id, d.fromPole))
+        endSession()
+        return
       }
     }
-    endSession()
   }
 
   const onLinkPointerDown = (e, link) => {
     e.stopPropagation()
     if (e.button !== 0) return
-    setPlugPopover(null)
     setSelectedLinkId(link.link.id === selectedLinkId ? null : link.link.id)
   }
 
-  // ---------- helpers ----------
+  // ---------- right-click on a scene card ----------
 
-  const getOrAddTypePlug = (s, sceneId, side, typeId) => {
-    const loc = B.findSceneLoc(s, sceneId)
-    if (!loc) return [s, null]
-    const plugs = loc.scene.board?.plugs || []
-    let plug = plugs.find((p) => p.type === typeId)
-    if (plug) return [s, plug]
-    s = B.addPlug(s, sceneId, { side, type: typeId, label: '' })
-    plug = B.findSceneLoc(s, sceneId).scene.board.plugs.find((p) => p.type === typeId) || null
-    return [s, plug]
+  const onSceneContextMenu = (e, sc) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setSelectedLinkId(null)
+    setCtxMenu(null)
+    setSceneMenu({ sceneId: sc.scene.id, x: e.clientX, y: e.clientY, tag: '' })
   }
 
-  const autoTimeLinks = () => {
-    const dated = T.datedScenes(story)
-    if (dated.length < 2) return
-    commit((s) => {
-      let next = s
-      const existing = new Set(
-        (s.board?.links || []).map((l) => [l.from?.sceneId, l.to?.sceneId].sort().join(':'))
-      )
-      for (let i = 0; i + 1 < dated.length; i++) {
-        const aId = dated[i].scene.id
-        const bId = dated[i + 1].scene.id
-        const key = [aId, bId].sort().join(':')
-        if (existing.has(key)) continue
-        next = getOrAddTypePlug(next, aId, 'right', 'timeorder')[0]
-        next = getOrAddTypePlug(next, bId, 'left', 'timeorder')[0]
-        const aPlug = B.findSceneLoc(next, aId).scene.board.plugs.find((p) => p.type === 'timeorder')
-        const bPlug = B.findSceneLoc(next, bId).scene.board.plugs.find((p) => p.type === 'timeorder')
-        next = B.addLink(next, {
-          from: { sceneId: aId, plugId: aPlug.id },
-          to: { sceneId: bId, plugId: bPlug.id },
-          type: 'timeorder',
-          label: ''
-        })
-        existing.add(key)
-      }
-      return next
-    })
+  const menuScene = sceneMenu
+    ? board.chapters.flatMap((c) => c.scenes).find((sc) => sc.scene.id === sceneMenu.sceneId)
+    : null
+
+  const addMenuPort = (pole) => {
+    if (!menuScene) return
+    commit((s) => B.addPort(s, menuScene.scene.id, pole))
+    setSceneMenu(null)
   }
 
-  // ---------- right-click context menu ----------
+  const addMenuTag = () => {
+    const tag = (sceneMenu.tag || '').trim()
+    if (!menuScene) {
+      setSceneMenu(null)
+      return
+    }
+    if (tag) commit((s) => B.addTag(s, menuScene.scene.id, tag))
+    setSceneMenu(null)
+  }
+
+  const removeMenuTag = (tag) => {
+    if (!menuScene) return
+    commit((s) => B.removeTag(s, menuScene.scene.id, tag))
+  }
+
+  const transferMenuScene = (targetChapterId) => {
+    if (!menuScene) return
+    const loc = B.findSceneLoc(story, menuScene.scene.id)
+    if (loc && loc.chapter.id !== targetChapterId) {
+      commit((s) => B.moveSceneToChapter(s, menuScene.scene.id, targetChapterId))
+      onSelectScene(menuScene.scene.id)
+    }
+    setSceneMenu(null)
+  }
+
+  // ---------- right-click context menu (empty canvas) ----------
 
   const onBoardContextMenu = (e) => {
     e.preventDefault()
@@ -474,14 +499,16 @@ export default function Board({
   // ---------- render helpers ----------
 
   const selectedChapterId =
-    board.chapters.find((c) => c.scenes.some((sc) => sc.scene.id === selectedSceneId))?.chapter.id ||
-    story.chapters[0]?.id
+    board.chapters.find((c) => c.scenes.some((sc) => sc.scene.id === selectedSceneId))?.chapter
+      .id || story.chapters[0]?.id
 
+  // The ghost wire leaves on the port's side and arrives on the opposite
+  // pole's side (negative leaves right, positive receives on the left).
   const ghostPath =
     drag && drag.kind === 'link'
       ? B.linkPath(
-          { x: drag.fromX, y: drag.fromY, side: drag.fromSide },
-          { x: drag.worldX, y: drag.worldY, side: drag.worldX >= drag.fromX ? 'left' : 'right' },
+          { x: drag.fromX, y: drag.fromY, side: drag.fromPole === 'neg' ? 'right' : 'left' },
+          { x: drag.worldX, y: drag.worldY, side: drag.fromPole === 'neg' ? 'left' : 'right' },
           0,
           threadCurve
         )
@@ -494,20 +521,6 @@ export default function Board({
 
   const ring = drag && drag.kind === 'link' ? drag.snap || drag.fallback : null
 
-  const popupScene = plugPopover
-    ? board.chapters.flatMap((c) => c.scenes).find((sc) => sc.scene.id === plugPopover)
-    : null
-
-  let popLeft = 0
-  let popTop = 0
-  if (popupScene) {
-    const s = toScreen(popupScene.x, popupScene.y)
-    const W = 320
-    popLeft = s.x + B.CARD_W * view.scale + 14
-    if (popLeft + W > vpRect.width - 8) popLeft = Math.max(8, s.x - W - 14)
-    popTop = clamp(s.y, 8, Math.max(8, vpRect.height - 430))
-  }
-
   const selectedLink = selectedLinkId
     ? board.links.find((l) => l.link.id === selectedLinkId) || null
     : null
@@ -518,6 +531,11 @@ export default function Board({
     linkPopLeft = clamp(s.x + 14, 8, Math.max(8, vpRect.width - 320))
     linkPopTop = clamp(s.y - 20, 8, Math.max(8, vpRect.height - 260))
   }
+
+  const menuChapterId = menuScene
+    ? board.chapters.find((c) => c.scenes.some((sc) => sc.scene.id === menuScene.scene.id))?.chapter
+        .id
+    : null
 
   // ---------- render ----------
 
@@ -545,13 +563,6 @@ export default function Board({
         >
           ▣ Zones
         </button>
-        <button
-          className="board-tool-btn"
-          onClick={autoTimeLinks}
-          title="Draw 'time order' links between scenes dated on the Timeline"
-        >
-          ⌚ by time
-        </button>
         <span className="board-sep" />
         <button className="board-tool-btn" onClick={() => zoomBy(1 / 1.25)} title="Zoom out">
           −
@@ -569,7 +580,7 @@ export default function Board({
         </button>
         <span className="board-sep" />
         <label className="board-linkdraft">
-          New link:
+          New wire:
           <select
             value={linkDraft.type}
             onChange={(e) => setLinkDraft({ ...linkDraft, type: e.target.value })}
@@ -632,7 +643,7 @@ export default function Board({
             </div>
           ))}
 
-          {/* links */}
+          {/* wires */}
           <svg
             className="board-links"
             width={WORLD}
@@ -659,7 +670,11 @@ export default function Board({
               const selected = selectedLinkId === link.id
               return (
                 <g key={'l-' + link.id} className={'board-link-g' + (selected ? ' selected' : '')}>
-                  <path className="board-link-hit" d={d} onPointerDown={(e) => onLinkPointerDown(e, { link })} />
+                  <path
+                    className="board-link-hit"
+                    d={d}
+                    onPointerDown={(e) => onLinkPointerDown(e, { link })}
+                  />
                   {/* soft wide under-stroke: the glowing ribbon edge (Blender's outer pass) */}
                   <path
                     className="board-link-soft"
@@ -679,7 +694,7 @@ export default function Board({
                       opacity: selected ? 1 : dim
                     }}
                   />
-                  {/* anchor dots so the thread visibly starts and ends on both plugs */}
+                  {/* anchor dots so the wire visibly starts and ends on both ports */}
                   <circle cx={from.x} cy={from.y} r={5} fill={type.color} />
                   <circle cx={to.x} cy={to.y} r={5} fill={type.color} />
                 </g>
@@ -706,6 +721,7 @@ export default function Board({
                 onPointerUp={(e) => onCardPointerUp(e, sc)}
                 onClick={() => onSelectScene(sc.scene.id)}
                 onDoubleClick={() => onOpenInEditor(sc.scene.id)}
+                onContextMenu={(e) => onSceneContextMenu(e, sc)}
               >
                 <div className="board-card-bar" style={{ background: sc.color }} />
                 {sc.scene.image ? (
@@ -719,50 +735,44 @@ export default function Board({
                   </span>
                   <span className="board-card-title">{sc.scene.title}</span>
                 </div>
-                <button
-                  className="board-addplug"
-                  title="Plugs & links"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => {
-                    setPlugPopover(sc.scene.id)
-                    setSelectedLinkId(null)
-                  }}
-                >
-                  ⚡
-                </button>
-                {sc.plugs.map((p) => (
-                  <div key={'plugwrap-' + p.id}>
-                    <div
-                      key={'plug-' + p.id}
-                      className={
-                        'board-plug' +
-                        (drag &&
-                        drag.kind === 'link' &&
-                        drag.snap &&
-                        drag.snap.sceneId === sc.scene.id &&
-                        drag.snap.plugId === p.id
-                          ? ' snap'
-                          : '')
-                      }
-                      style={{
-                        left: p.x - sc.x - 7,
-                        top: p.y - sc.y - 7,
-                        borderColor: typeOf(p.type).color
-                      }}
-                      title={p.note ? p.note + ' (' + typeOf(p.type).label + ')' : p.label || typeOf(p.type).label}
-                      onPointerDown={(e) => onPlugPointerDown(e, sc, p)}
-                      onPointerMove={onPlugPointerMove}
-                      onPointerUp={onPlugPointerUp}
-                    />
-                    {p.note && view.scale >= 0.7 && (
-                      <div
-                        className="board-plug-note"
-                        style={{ left: p.x - sc.x - 7, top: p.y - sc.y + 10 }}
-                        title={p.note}
+                {Array.isArray(sc.scene.tags) && sc.scene.tags.length > 0 && (
+                  <div className="board-card-tags">
+                    {sc.scene.tags.map((t) => (
+                      <span
+                        key={t}
+                        className="board-card-tag"
+                        title="Right-click the scene to manage tags"
                       >
-                        » {p.note}
-                      </div>
-                    )}
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {sc.ports.map((p) => (
+                  <div
+                    key={'port-' + p.portId}
+                    className={
+                      'board-port ' +
+                      (p.pole === 'pos' ? 'pos' : 'neg') +
+                      (drag &&
+                      drag.kind === 'link' &&
+                      drag.snap &&
+                      drag.snap.sceneId === sc.scene.id &&
+                      drag.snap.portId === p.portId
+                        ? ' snap'
+                        : '')
+                    }
+                    style={{ left: p.x - sc.x - 7, top: p.y - sc.y - 7 }}
+                    title={
+                      p.pole === 'pos'
+                        ? "Positive port — another scene's negative flows in here (left)"
+                        : "Negative port — this flows into another scene's positive (right)"
+                    }
+                    onPointerDown={(e) => onPortPointerDown(e, p)}
+                    onPointerMove={onPortPointerMove}
+                    onPointerUp={onPortPointerUp}
+                  >
+                    {p.pole === 'pos' ? '＋' : '−'}
                   </div>
                 ))}
               </div>
@@ -770,11 +780,8 @@ export default function Board({
           )}
         </div>
 
-        {/* overlay: link labels + snap ring + popovers */}
-        <div
-          className="board-overlay"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
+        {/* overlay: wire labels + snap ring + popovers */}
+        <div className="board-overlay" onPointerDown={(e) => e.stopPropagation()}>
           {board.links.map(({ link, mid, type }) => {
             const s = toScreen(mid.x, mid.y)
             return (
@@ -785,7 +792,6 @@ export default function Board({
                 title={link.note || link.label || type.label}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => {
-                  setPlugPopover(null)
                   setSelectedLinkId(link.id === selectedLinkId ? null : link.id)
                 }}
               >
@@ -800,7 +806,9 @@ export default function Board({
 
           {ring && (
             <div
-              className={'board-snapring' + (drag && drag.kind === 'link' && !drag.snap ? ' far' : '')}
+              className={
+                'board-snapring' + (drag && drag.kind === 'link' && !drag.snap ? ' far' : '')
+              }
               style={{
                 left: toScreen(ring.x, ring.y).x,
                 top: toScreen(ring.x, ring.y).y,
@@ -809,126 +817,13 @@ export default function Board({
             />
           )}
 
-          {popupScene && (
-            <div className="board-popover" style={{ left: popLeft, top: popTop, width: 320 }}>
-              <div className="board-popover-head">
-                <span className="pop-title">{popupScene.scene.title}</span>
-                <button className="pop-close" onClick={() => setPlugPopover(null)}>
-                  ✕
-                </button>
-              </div>
-              <div className="pop-block-label">Plugs on this scene</div>
-              {popupScene.plugs.length === 0 && (
-                <div className="pop-empty">No plugs yet — add one below.</div>
-              )}
-              {popupScene.plugs.map((p) => (
-                <div key={p.id} className="plug-item">
-                  <div className="plug-row">
-                    <span className="plug-row-dot" style={{ background: typeOf(p.type).color }} />
-                    <select
-                      value={p.type}
-                      onChange={(e) => commit((s) => B.updatePlug(s, popupScene.scene.id, p.id, { type: e.target.value }))}
-                    >
-                      {B.PLUG_TYPES.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={p.side}
-                      onChange={(e) => commit((s) => B.updatePlug(s, popupScene.scene.id, p.id, { side: e.target.value }))}
-                    >
-                      {B.SIDES.map((sd) => (
-                        <option key={sd} value={sd}>
-                          {B.SIDE_LABELS[sd]}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      className="plug-label"
-                      value={p.label || ''}
-                      placeholder="label"
-                      onChange={(e) => commit((s) => B.updatePlug(s, popupScene.scene.id, p.id, { label: e.target.value }))}
-                    />
-                    <button
-                      className="pop-x"
-                      title="Remove plug"
-                      onClick={() => commit((s) => B.removePlug(s, popupScene.scene.id, p.id))}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <input
-                    className="plug-label plug-label-note"
-                    value={p.note || ''}
-                    placeholder="Note (optional) — why this plug exists…"
-                    onChange={(e) => commit((s) => B.updatePlug(s, popupScene.scene.id, p.id, { note: e.target.value }))}
-                  />
-                </div>
-              ))}
-              <div className="pop-block-label">Add plug</div>
-              <div className="plug-row">
-                <select
-                  value={plugDraft.side}
-                  onChange={(e) => setPlugDraft({ ...plugDraft, side: e.target.value })}
-                >
-                  {B.SIDES.map((sd) => (
-                    <option key={sd} value={sd}>
-                      {B.SIDE_LABELS[sd]}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={plugDraft.type}
-                  onChange={(e) => setPlugDraft({ ...plugDraft, type: e.target.value })}
-                >
-                  {B.PLUG_TYPES.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="pop-add"
-                  onClick={() => {
-                    commit((s) =>
-                      B.addPlug(s, popupScene.scene.id, {
-                        side: plugDraft.side,
-                        type: plugDraft.type,
-                        label: plugDraft.label.trim(),
-                        note: (plugDraft.note || '').trim()
-                      })
-                    )
-                    setPlugDraft({ ...plugDraft, label: '', note: '' })
-                  }}
-                >
-                  ＋ Add
-                </button>
-              </div>
-              <input
-                className="plug-label plug-label-wide"
-                value={plugDraft.label}
-                placeholder="Optional label for this plug…"
-                onChange={(e) => setPlugDraft({ ...plugDraft, label: e.target.value })}
-              />
-              <input
-                className="plug-label plug-label-wide"
-                value={plugDraft.note || ''}
-                placeholder="Optional note — why this plug exists…"
-                onChange={(e) => setPlugDraft({ ...plugDraft, note: e.target.value })}
-              />
-              <div className="pop-hint">
-                Drag from a dot to another dot to draw a link — releasing anywhere on a scene still
-                connects to its nearest plug.
-              </div>
-            </div>
-          )}
-
           {selectedLink && (
-            <div className="board-popover" style={{ left: linkPopLeft, top: linkPopTop, width: 300 }}>
+            <div
+              className="board-popover"
+              style={{ left: linkPopLeft, top: linkPopTop, width: 300 }}
+            >
               <div className="board-popover-head">
-                <span className="pop-title">Edit link</span>
+                <span className="pop-title">Edit wire</span>
                 <button className="pop-close" onClick={() => setSelectedLinkId(null)}>
                   ✕
                 </button>
@@ -936,7 +831,9 @@ export default function Board({
               <div className="pop-block-label">Type</div>
               <select
                 value={selectedLink.link.type}
-                onChange={(e) => commit((s) => B.updateLink(s, selectedLink.link.id, { type: e.target.value }))}
+                onChange={(e) =>
+                  commit((s) => B.updateLink(s, selectedLink.link.id, { type: e.target.value }))
+                }
               >
                 {B.PLUG_TYPES.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -949,14 +846,18 @@ export default function Board({
                 className="plug-label plug-label-wide"
                 value={selectedLink.link.label || ''}
                 placeholder="Optional label, e.g. “because…”"
-                onChange={(e) => commit((s) => B.updateLink(s, selectedLink.link.id, { label: e.target.value }))}
+                onChange={(e) =>
+                  commit((s) => B.updateLink(s, selectedLink.link.id, { label: e.target.value }))
+                }
               />
               <div className="pop-block-label">Note (optional — why this link matters)</div>
               <input
                 className="plug-label plug-label-wide"
                 value={selectedLink.link.note || ''}
                 placeholder="e.g. Chapter 3 depends on this promise…"
-                onChange={(e) => commit((s) => B.updateLink(s, selectedLink.link.id, { note: e.target.value }))}
+                onChange={(e) =>
+                  commit((s) => B.updateLink(s, selectedLink.link.id, { note: e.target.value }))
+                }
               />
               <button
                 className="pop-danger"
@@ -965,7 +866,7 @@ export default function Board({
                   setSelectedLinkId(null)
                 }}
               >
-                Delete link
+                Delete wire
               </button>
             </div>
           )}
@@ -991,7 +892,10 @@ export default function Board({
                 {story.chapters.map((c) => (
                   <button
                     key={c.id}
-                    className={'board-ctxmenu-item' + (ctxMenu.chapter && ctxMenu.chapter.id === c.id ? ' current' : '')}
+                    className={
+                      'board-ctxmenu-item' +
+                      (ctxMenu.chapter && ctxMenu.chapter.id === c.id ? ' current' : '')
+                    }
                     onClick={() => {
                       onAddSceneAt(c.id, ctxMenu.worldX, ctxMenu.worldY)
                       setCtxMenu(null)
@@ -1006,6 +910,97 @@ export default function Board({
           </div>
         )}
 
+        {sceneMenu && menuScene && (
+          <div
+            className="board-ctxmenu board-scenemenu"
+            style={{ left: sceneMenu.x, top: sceneMenu.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <div className="board-ctxmenu-title">{menuScene.scene.title}</div>
+            <button className="board-ctxmenu-item" onClick={() => addMenuPort('pos')}>
+              ＋ Positive port (left side)
+            </button>
+            <button className="board-ctxmenu-item" onClick={() => addMenuPort('neg')}>
+              ＋ Negative port (right side)
+            </button>
+            <div className="board-ctxmenu-sep" />
+            <button
+              className="board-ctxmenu-item"
+              onClick={() => {
+                onOpenInEditor(menuScene.scene.id)
+                setSceneMenu(null)
+              }}
+            >
+              ✎ Edit scene
+            </button>
+            <button
+              className="board-ctxmenu-item"
+              onClick={() => {
+                onAddPhoto(menuScene.scene.id)
+                setSceneMenu(null)
+              }}
+            >
+              🖼 Add photo
+            </button>
+            <div className="board-ctxmenu-title">Tags</div>
+            {menuScene.scene.tags && menuScene.scene.tags.length > 0 ? (
+              menuScene.scene.tags.map((t) => (
+                <button
+                  key={t}
+                  className="board-ctxmenu-item board-ctxmenu-tag"
+                  onClick={() => removeMenuTag(t)}
+                  title="Click to remove this tag"
+                >
+                  🏷 {t} ✕
+                </button>
+              ))
+            ) : (
+              <div className="board-ctxmenu-none">No tags on this scene yet.</div>
+            )}
+            <div className="board-ctxmenu-tagrow">
+              <input
+                className="tag-input"
+                value={sceneMenu.tag || ''}
+                placeholder="Add a tag…"
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setSceneMenu({ ...sceneMenu, tag: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.stopPropagation()
+                    addMenuTag()
+                  }
+                }}
+              />
+              <button className="pop-add" onClick={addMenuTag}>
+                Add
+              </button>
+            </div>
+            <div className="board-ctxmenu-sep" />
+            <div className="board-ctxmenu-title">Transfer to chapter</div>
+            {story.chapters.map((c) => (
+              <button
+                key={c.id}
+                className={'board-ctxmenu-item' + (c.id === menuChapterId ? ' current' : '')}
+                onClick={() => transferMenuScene(c.id)}
+              >
+                {c.title}
+              </button>
+            ))}
+            <div className="board-ctxmenu-sep" />
+            <button
+              className="board-ctxmenu-item danger"
+              onClick={() => {
+                const sid = menuScene.scene.id
+                setSceneMenu(null)
+                onDeleteScene(sid)
+              }}
+            >
+              ✕ Delete scene
+            </button>
+          </div>
+        )}
+
         <div className="board-legend">
           <span className="board-legend-title">Links</span>
           {B.PLUG_TYPES.map((t) => (
@@ -1017,8 +1012,9 @@ export default function Board({
         </div>
 
         <div className="board-hint">
-          Drag background to pan · Scroll to move · Ctrl+Scroll to zoom · Right-click for quick add ·
-          Drag a dot onto a dot to link · ⚡ adds plugs · Double-click a card to edit
+          Drag background to pan · Scroll to move · Ctrl+Scroll to zoom · Right-click a scene card
+          for its menu · Storyline wires flow negative → positive: drag from a − (right side) into a
+          + (left side)
         </div>
       </div>
     </div>
@@ -1033,6 +1029,8 @@ Board.propTypes = {
   onAddScene: PropTypes.func.isRequired,
   onAddSceneAt: PropTypes.func.isRequired,
   onAddChapterAt: PropTypes.func.isRequired,
+  onDeleteScene: PropTypes.func.isRequired,
+  onAddPhoto: PropTypes.func.isRequired,
   commit: PropTypes.func.isRequired,
   patch: PropTypes.func.isRequired,
   endSession: PropTypes.func.isRequired

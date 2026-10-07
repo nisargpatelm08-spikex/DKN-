@@ -1,4 +1,12 @@
 // Board (2D plan) data helpers for DKN — pure functions on story objects.
+//
+// The linking system works like this (no "plugs" anymore):
+//   • Every scene carries ports: POSITIVE ports on its LEFT edge, NEGATIVE
+//     ports on its RIGHT edge.
+//   • A wire always flows NEGATIVE → POSITIVE: one scene's negative port
+//     (right side) connects into another scene's positive port (left side).
+//   • Storyline wires live in story.board.links; the Timeline's actual-story
+//     wires live in story.timeline.links — both saved in the .dknproj file.
 
 export const CARD_W = 200
 export const CARD_H = 122
@@ -7,11 +15,15 @@ export const GAP_Y = 34
 export const ZONE_PAD = 24
 export const TITLE_H = 30
 
-// ---------- plug/link catalog ----------
+// Port dots sit just off the card edges, stacked from the top.
+export const PORT_Y0 = 30
+export const PORT_STEP = 24
+
+// ---------- wire/link type catalog (colour + dash of a thread) ----------
 
 export const PLUG_TYPES = [
-  { id: 'timeorder', label: 'Time order', color: '#4a9de8', dash: null },
   { id: 'storyline', label: 'Storyline', color: '#43b581', dash: '10 6' },
+  { id: 'timeorder', label: 'Time order', color: '#4a9de8', dash: null },
   { id: 'character', label: 'Character', color: '#b07bd6', dash: '4 4' },
   { id: 'cause', label: 'Cause & effect', color: '#e8595a', dash: '14 5' },
   { id: 'theme', label: 'Theme', color: '#e8a23c', dash: '12 5 3 5' },
@@ -20,15 +32,7 @@ export const PLUG_TYPES = [
 ]
 
 export const PLUG_TYPE_MAP = Object.fromEntries(PLUG_TYPES.map((t) => [t.id, t]))
-export const DEFAULT_PLUG_TYPE = 'timeorder'
-
-export const SIDES = ['left', 'right', 'top', 'bottom']
-export const SIDE_LABELS = {
-  left: 'Left side',
-  right: 'Right side',
-  top: 'Top edge',
-  bottom: 'Bottom edge'
-}
+export const DEFAULT_LINK_TYPE = 'storyline'
 
 export const ZONE_COLORS = [
   '#e0a23c',
@@ -64,7 +68,10 @@ export function effScenePos(scene, chapter, chapterIndex) {
     const last = withPos[withPos.length - 1]
     return { x: last.board.x, y: last.board.y + CARD_H + GAP_Y }
   }
-  const row = Math.max(0, chapter.scenes.findIndex((s) => s.id === scene.id))
+  const row = Math.max(
+    0,
+    chapter.scenes.findIndex((s) => s.id === scene.id)
+  )
   return { x: 90 + chapterIndex * 270, y: 110 + row * (CARD_H + GAP_Y) }
 }
 
@@ -92,48 +99,47 @@ export function computeZone(chapter, chapterIndex, scenes) {
 
 export function effZone(chapter, chapterIndex, scenes) {
   const z = chapter.zone
-  if (z && Number.isFinite(z.x) && Number.isFinite(z.y) && Number.isFinite(z.w) && Number.isFinite(z.h)) {
+  if (
+    z &&
+    Number.isFinite(z.x) &&
+    Number.isFinite(z.y) &&
+    Number.isFinite(z.w) &&
+    Number.isFinite(z.h)
+  ) {
     return { ...z }
   }
   return computeZone(chapter, chapterIndex, scenes)
 }
 
-// Plug anchor points in world coords for one scene.
-export function plugPoints(scene, chapter, chapterIndex) {
+// Anchor points (world coords) for every port of one scene.
+// POSITIVE on the LEFT edge, NEGATIVE on the RIGHT edge.
+export function effPorts(scene, chapter, chapterIndex) {
   const pos = effScenePos(scene, chapter, chapterIndex)
-  const boards = scene.board || {}
-  const plugs = boards.plugs || []
-  const bySide = { left: [], right: [], top: [], bottom: [] }
-  for (const p of plugs) {
-    const side = SIDES.includes(p.side) ? p.side : 'left'
-    bySide[side].push(p)
-  }
+  const b = scene.board || {}
+  const posIds = Array.isArray(b.pos) && b.pos.length ? b.pos : [scene.id + ':p1']
+  const negIds = Array.isArray(b.neg) && b.neg.length ? b.neg : [scene.id + ':n1']
   const out = []
-  for (const side of SIDES) {
-    bySide[side].forEach((p, i) => {
-      let x = pos.x
-      let y = pos.y
-      if (side === 'left') {
-        x = pos.x - 7
-        y = pos.y + 34 + i * 24
-      } else if (side === 'right') {
-        x = pos.x + CARD_W + 7
-        y = pos.y + 34 + i * 24
-      } else if (side === 'top') {
-        x = pos.x + 34 + i * 30
-        y = pos.y - 7
-      } else {
-        x = pos.x + 34 + i * 30
-        y = pos.y + CARD_H + 7
-      }
-      out.push({ ...p, sceneId: scene.id, side, index: i, x, y })
+  posIds.forEach((id, i) => {
+    out.push({
+      sceneId: scene.id,
+      portId: id,
+      pole: 'pos',
+      side: 'left',
+      x: pos.x - 7,
+      y: pos.y + PORT_Y0 + i * PORT_STEP
     })
-  }
+  })
+  negIds.forEach((id, i) => {
+    out.push({
+      sceneId: scene.id,
+      portId: id,
+      pole: 'neg',
+      side: 'right',
+      x: pos.x + CARD_W + 7,
+      y: pos.y + PORT_Y0 + i * PORT_STEP
+    })
+  })
   return out
-}
-
-export function localPlugOffset(plug, cardX, cardY) {
-  return { x: plug.x - cardX, y: plug.y - cardY }
 }
 
 export function normalOf(side) {
@@ -145,13 +151,13 @@ export function normalOf(side) {
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
 
-// Thread geometry — modelled on Blender's node "noodles" (drawnode.cc).
-// A thread leaves its plug along that plug's side normal (like a socket) and
-// arrives along the other plug's normal. The handle length comes from the
+// Wire geometry — modelled on Blender's node "noodles" (drawnode.cc).
+// A wire leaves its port along the port's side normal (like a socket) and
+// arrives along the other port's normal. The handle length comes from the
 // user-facing `curve` setting (Thread bend, 0..1 — Blender's "Noodle
-// Curving"). Like Blender, handles are clamped short when the two plugs sit
-// nearly in line, so threads never hump; curving 0 draws a perfectly straight
-// thread. `bend` then fans parallel threads into separate lanes.
+// Curving"). Like Blender, handles are clamped short when the two ports sit
+// nearly in line, so wires never hump; curving 0 draws a perfectly straight
+// wire. `bend` then fans parallel wires into separate lanes.
 function threadCtrlPoints(from, to, bend, curve) {
   const n1 = normalOf(from.side || 'right')
   const n2 = normalOf(to.side || 'left')
@@ -159,23 +165,22 @@ function threadCtrlPoints(from, to, bend, curve) {
 
   let c1, c2
   if (curving === 0) {
-    // Straight thread: control points land at 1/3 and 2/3 of the way across.
+    // Straight wire: control points land at 1/3 and 2/3 of the way across.
     const dx = to.x - from.x
     const dy = to.y - from.y
     c1 = { x: from.x + dx / 3, y: from.y + dy / 3 }
     c2 = { x: from.x + (dx * 2) / 3, y: from.y + (dy * 2) / 3 }
-  }
-  else {
+  } else {
     // Distance along the exit direction against the distance across it
-    // (Blender's dist_x / dist_y, generalized for plugs on any side).
+    // (Blender's dist_x / dist_y, generalized for ports on any side).
     const along = (to.x - from.x) * n1.x + (to.y - from.y) * n1.y
     const acrossLen = Math.abs(-(to.x - from.x) * n1.y + (to.y - from.y) * n1.x)
     const distAlong = Math.max(1, Math.abs(along))
-    // Near-parallel plugs keep short handles so the thread stays flat.
+    // Near-parallel ports keep short handles so the wire stays flat.
     const slope = acrossLen / distAlong
     const clampFactor = Math.min(1, slope * (4.5 - 0.25 * curving))
     // Blender: handle_offset = curving * 0.1 * dist_x * clamp_factor. A small
-    // floor keeps even tiny threads gently bowed — a wire never becomes a
+    // floor keeps even tiny wires gently bowed — a wire never becomes a
     // paper-thin hard line.
     const handle = Math.max(14, curving * 0.1 * distAlong * clampFactor)
     c1 = { x: from.x + n1.x * handle, y: from.y + n1.y * handle }
@@ -183,8 +188,8 @@ function threadCtrlPoints(from, to, bend, curve) {
   }
 
   if (bend) {
-    // Shift both control points sideways so the whole thread bows into its
-    // lane while both ends stay glued to their plugs.
+    // Shift both control points sideways so the whole wire bows into its
+    // lane while both ends stay glued to their ports.
     const tx = to.x - from.x
     const ty = to.y - from.y
     const len = Math.hypot(tx, ty) || 1
@@ -203,8 +208,8 @@ export function linkPath(from, to, bend = 0, curve = 0.5) {
   return `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`
 }
 
-// The point halfway along the thread (t = 0.5 of the cubic), so a link's label
-// chip always sits on its own thread — not shared with a parallel one.
+// The point halfway along the wire (t = 0.5 of the cubic), so a link's label
+// chip always sits on its own wire — not shared with a parallel one.
 export function midOf(from, to, bend = 0, curve = 0.5) {
   const { c1, c2 } = threadCtrlPoints(from, to, bend, curve)
   const t = 0.5
@@ -228,18 +233,56 @@ export function findSceneLoc(story, sceneId) {
   return null
 }
 
-// ---------- mutations (pure) ----------
+// Which pole does this port belong to ('pos', 'neg', or null if unknown)?
+export function poleOfPort(story, sceneId, portId) {
+  const loc = findSceneLoc(story, sceneId)
+  if (!loc) return null
+  const b = loc.scene.board || {}
+  if ((b.pos || []).includes(portId)) return 'pos'
+  if ((b.neg || []).includes(portId)) return 'neg'
+  return null
+}
 
-export function setScenePos(story, sceneId, x, y) {
+// The rule of the wires: NEGATIVE always connects INTO POSITIVE.
+// Given two endpoints, returns the canonical link ends with `from` = the
+// negative port's scene and `to` = the positive port's scene, or null when the
+// two ports share the same polarity (the link would be invalid).
+export function normalizeEnds(story, aSceneId, aPortId, bSceneId, bPortId) {
+  if (!aSceneId || !bSceneId || aSceneId === bSceneId || !aPortId || !bPortId) return null
+  const pa = poleOfPort(story, aSceneId, aPortId)
+  const pb = poleOfPort(story, bSceneId, bPortId)
+  if (!pa || !pb || pa === pb) return null
+  return pa === 'neg'
+    ? { fromSceneId: aSceneId, fromPortId: aPortId, toSceneId: bSceneId, toPortId: bPortId }
+    : { fromSceneId: bSceneId, fromPortId: bPortId, toSceneId: aSceneId, toPortId: aPortId }
+}
+
+function setScene(story, sceneId, patch) {
+  return {
+    ...story,
+    chapters: story.chapters.map((c) => ({
+      ...c,
+      scenes: c.scenes.map((s) => (s.id === sceneId ? { ...s, ...patch } : s))
+    }))
+  }
+}
+
+function setBoardOf(story, sceneId, fn) {
   return {
     ...story,
     chapters: story.chapters.map((c) => ({
       ...c,
       scenes: c.scenes.map((s) =>
-        s.id === sceneId ? { ...s, board: { ...(s.board || {}), x, y } } : s
+        s.id === sceneId ? { ...s, board: fn({ ...(s.board || {}) }) } : s
       )
     }))
   }
+}
+
+// ---------- mutations (pure) ----------
+
+export function setScenePos(story, sceneId, x, y) {
+  return setBoardOf(story, sceneId, (b) => ({ ...b, x, y }))
 }
 
 export function moveSceneToChapter(story, sceneId, targetChapterId) {
@@ -256,79 +299,42 @@ export function moveSceneToChapter(story, sceneId, targetChapterId) {
   return { ...story, chapters }
 }
 
-export function addPlug(story, sceneId, plug) {
-  const id = plug.id || uid()
-  return {
-    ...story,
-    chapters: story.chapters.map((c) => ({
-      ...c,
-      scenes: c.scenes.map((s) =>
-        s.id === sceneId
-          ? {
-              ...s,
-              board: {
-                ...(s.board || {}),
-                plugs: [...(s.board?.plugs || []), { ...plug, id }]
-              }
-            }
-          : s
-      )
-    }))
-  }
+// Add one more port (positive on the left, negative on the right).
+export function addPort(story, sceneId, pole) {
+  const key = pole === 'neg' ? 'neg' : 'pos'
+  const id = uid()
+  return setBoardOf(story, sceneId, (b) => ({ ...b, [key]: [...(b[key] || []), id] }))
 }
 
-export function updatePlug(story, sceneId, plugId, patch) {
-  return {
-    ...story,
-    chapters: story.chapters.map((c) => ({
-      ...c,
-      scenes: c.scenes.map((s) =>
-        s.id === sceneId
-          ? {
-              ...s,
-              board: {
-                ...(s.board || {}),
-                plugs: (s.board?.plugs || []).map((p) => (p.id === plugId ? { ...p, ...patch } : p))
-              }
-            }
-          : s
-      )
-    }))
-  }
-}
-
-export function removePlug(story, sceneId, plugId) {
-  const linked = (l) =>
-    (l.from?.sceneId === sceneId && l.from?.plugId === plugId) ||
-    (l.to?.sceneId === sceneId && l.to?.plugId === plugId)
-  const links = (story.board?.links || []).filter((l) => !linked(l))
-  return {
-    ...story,
-    board: { ...(story.board || {}), links },
-    chapters: story.chapters.map((c) => ({
-      ...c,
-      scenes: c.scenes.map((s) =>
-        s.id === sceneId
-          ? {
-              ...s,
-              board: {
-                ...(s.board || {}),
-                plugs: (s.board?.plugs || []).filter((p) => p.id !== plugId)
-              }
-            }
-          : s
-      )
-    }))
-  }
-}
-
+// Add a wire between two endpoints. Polarity is normalized inside, so passing
+// either order works — the stored link always flows negative → positive.
 export function addLink(story, link) {
+  const ends = normalizeEnds(
+    story,
+    link.aSceneId ?? link.fromSceneId,
+    link.aPortId ?? link.fromPortId,
+    link.bSceneId ?? link.toSceneId,
+    link.bPortId ?? link.toPortId
+  )
+  if (!ends) return story
   const id = link.id || uid()
   return {
     ...story,
     board: {
       ...(story.board || {}),
-      links: [...(story.board?.links || []), { ...link, id }]
+      links: [
+        ...(story.board?.links || []),
+        {
+          id,
+          fromSceneId: ends.fromSceneId,
+          fromPortId: ends.fromPortId,
+          toSceneId: ends.toSceneId,
+          toPortId: ends.toPortId,
+          type: link.type || DEFAULT_LINK_TYPE,
+          label: link.label || '',
+          note: link.note || ''
+        }
+      ]
     }
   }
 }
@@ -346,12 +352,40 @@ export function updateLink(story, linkId, patch) {
 export function removeLink(story, linkId) {
   return {
     ...story,
-    board: { ...(story.board || {}), links: (story.board?.links || []).filter((l) => l.id !== linkId) }
+    board: {
+      ...(story.board || {}),
+      links: (story.board?.links || []).filter((l) => l.id !== linkId)
+    }
   }
 }
 
+// ---------- tags ----------
+
+export function addTag(story, sceneId, tag) {
+  const t = String(tag || '').trim()
+  if (!t) return story
+  const loc = findSceneLoc(story, sceneId)
+  if (!loc) return story
+  const tags = loc.scene.tags || []
+  if (tags.includes(t)) return story
+  return setScene(story, sceneId, { tags: [...tags, t] })
+}
+
+export function removeTag(story, sceneId, tag) {
+  const loc = findSceneLoc(story, sceneId)
+  if (!loc) return story
+  return setScene(story, sceneId, { tags: (loc.scene.tags || []).filter((t) => t !== tag) })
+}
+
+// ---------- zones / layout ----------
+
 export function moveZone(story, chapterId, dx, dy, origZone, origin) {
-  const zone = { x: Math.round(origZone.x + dx), y: Math.round(origZone.y + dy), w: origZone.w, h: origZone.h }
+  const zone = {
+    x: Math.round(origZone.x + dx),
+    y: Math.round(origZone.y + dy),
+    w: origZone.w,
+    h: origZone.h
+  }
   return {
     ...story,
     chapters: story.chapters.map((c) => {
@@ -421,33 +455,112 @@ export function boundsOf(story) {
   return { x: minX - M, y: minY - M, w: maxX - minX + M * 2, h: maxY - minY + M * 2 }
 }
 
-// ---------- pruning ----------
+// ---------- pruning & upgrades ----------
 
+// Remove every wire (storyline and timeline) that touches this scene.
 export function pruneLinksForScene(story, sceneId) {
-  const links = story.board?.links || []
-  const keep = links.filter((l) => l.from?.sceneId !== sceneId && l.to?.sceneId !== sceneId)
-  if (keep.length === links.length) return story
-  return { ...story, board: { ...(story.board || {}), links: keep } }
+  const keepB = (story.board?.links || []).filter(
+    (l) => l.fromSceneId !== sceneId && l.toSceneId !== sceneId
+  )
+  const keepT = (story.timeline?.links || []).filter(
+    (l) => l.fromSceneId !== sceneId && l.toSceneId !== sceneId
+  )
+  return {
+    ...story,
+    board: { ...(story.board || {}), links: keepB },
+    timeline: { ...(story.timeline || {}), links: keepT }
+  }
 }
 
-// Removes any link whose anchor plugs no longer exist.
+// Bring any older .dknproj file up to the positive/negative wiring model:
+//  • every scene gets at least one positive and one negative port (old plugs
+//    on the left become extra positive ports, any others extra negative ones),
+//  • old plug-anchored wires are re-created as negative → positive wires,
+//  • the timeline's "actual story" wire list exists.
+export function upgradeBoard(story) {
+  let s = {
+    ...story,
+    chapters: story.chapters.map((c) => ({
+      ...c,
+      scenes: c.scenes.map((scn) => {
+        const b = scn.board || {}
+        const plugs = Array.isArray(b.plugs) ? b.plugs : []
+        const pos = Array.isArray(b.pos) ? [...b.pos] : []
+        const neg = Array.isArray(b.neg) ? [...b.neg] : []
+        const oldLeft = plugs.filter((p) => p && p.side === 'left').length
+        const oldRight = plugs.length - oldLeft
+        while (pos.length < 1 + oldLeft) pos.push(uid())
+        while (neg.length < 1 + oldRight) neg.push(uid())
+        const board = { ...b, pos, neg }
+        delete board.plugs
+        return { ...scn, board }
+      })
+    })),
+    timeline: { ...(story.timeline || {}), links: [...(story.timeline?.links || [])] }
+  }
+
+  // Re-create old plug wires as polarity wires.
+  const oldLinks = Array.isArray(story.board?.links) ? story.board.links : []
+  const rebuilt = []
+  for (const l of oldLinks) {
+    if (!l || !l.from || !l.to) continue
+    const fromSceneId = l.from.sceneId
+    const toSceneId = l.to.sceneId
+    if (!fromSceneId || !toSceneId || fromSceneId === toSceneId) continue
+    const negId = ensurePort(s, fromSceneId, 'neg')
+    const posId = ensurePort(s, toSceneId, 'pos')
+    if (negId && posId) {
+      rebuilt.push({
+        id: l.id || uid(),
+        fromSceneId,
+        fromPortId: negId,
+        toSceneId,
+        toPortId: posId,
+        type: l.type || DEFAULT_LINK_TYPE,
+        label: l.label || '',
+        note: l.note || ''
+      })
+    }
+  }
+  if (rebuilt.length || !Array.isArray(story.board?.links)) {
+    s = { ...s, board: { ...(s.board || {}), links: rebuilt } }
+  }
+  return s
+}
+
+function ensurePort(story, sceneId, pole) {
+  const loc = findSceneLoc(story, sceneId)
+  if (!loc) return null
+  const arr = pole === 'neg' ? loc.scene.board?.neg : loc.scene.board?.pos
+  if (arr && arr.length) return arr[0]
+  const next = addPort(story, sceneId, pole)
+  const nl = findSceneLoc(next, sceneId)
+  const nArr = pole === 'neg' ? nl.scene.board.neg : nl.scene.board.pos
+  return nArr && nArr.length ? nArr[nArr.length - 1] : null
+}
+
+// Full sanity pass: upgrade old files, then drop any wire whose ports are
+// gone or whose polarity no longer holds.
 export function sanitizeBoard(story) {
-  const links = story.board?.links || []
-  const plugs = new Map()
-  story.chapters.forEach((c) =>
-    c.scenes.forEach((s) => {
-      plugs.set(s.id, new Set((s.board?.plugs || []).map((p) => p.id)))
-    })
-  )
-  const keep = links.filter((l) => {
-    const a = l.from
-    const b = l.to
-    return (
-      a && b && plugs.get(a.sceneId)?.has(a.plugId) && plugs.get(b.sceneId)?.has(b.plugId)
-    )
+  const upgraded = upgradeBoard(story)
+  const links = (upgraded.board?.links || []).filter((l) => {
+    const pa = poleOfPort(upgraded, l.fromSceneId, l.fromPortId)
+    const pb = poleOfPort(upgraded, l.toSceneId, l.toPortId)
+    return pa === 'neg' && pb === 'pos'
   })
-  if (keep.length === links.length) return story
-  return { ...story, board: { ...(story.board || {}), links: keep } }
+  const tlLinks = (upgraded.timeline?.links || []).filter(
+    (l) =>
+      l.fromSceneId &&
+      l.toSceneId &&
+      l.fromSceneId !== l.toSceneId &&
+      findSceneLoc(upgraded, l.fromSceneId) &&
+      findSceneLoc(upgraded, l.toSceneId)
+  )
+  return {
+    ...upgraded,
+    board: { ...(upgraded.board || {}), links },
+    timeline: { ...(upgraded.timeline || {}), links: tlLinks }
+  }
 }
 
 export function hexToRgba(hex, alpha) {

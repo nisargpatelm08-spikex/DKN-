@@ -37,9 +37,7 @@ export function uid() {
 
 export function defaultTimeline() {
   return {
-    years: [
-      { id: uid(), label: 'Year 1', monthCount: 6, dayCount: 14, monthLabels: [] }
-    ]
+    years: [{ id: uid(), label: 'Year 1', monthCount: 6, dayCount: 14, monthLabels: [] }]
   }
 }
 
@@ -172,7 +170,15 @@ export function datedScenes(story) {
       if (!t || !yearIdx.has(t.yearId)) return
       const year = tl.years[yearIdx.get(t.yearId)]
       if (!Number.isFinite(t.day) || t.day < 0 || t.day >= totalDays(year)) return
-      out.push({ scene, chapterIndex: ci, sceneIndex: si, yearId: t.yearId, yearIndex: yearIdx.get(t.yearId), day: t.day, slot: t.slot })
+      out.push({
+        scene,
+        chapterIndex: ci,
+        sceneIndex: si,
+        yearId: t.yearId,
+        yearIndex: yearIdx.get(t.yearId),
+        day: t.day,
+        slot: t.slot
+      })
     })
   })
   out.sort(
@@ -270,4 +276,38 @@ export function dayAt(layout, wx, wy) {
     }
   }
   return null
+}
+
+// ---------- actual-story wires (timeline links) ----------
+// The Timeline shows the real story in time order. Scenes connect the same
+// way as on the Board: a scene's NEGATIVE (right edge) flows into the next
+// scene's POSITIVE (left edge). A timeline link is stored as
+// { fromSceneId, toSceneId } where `from` is the scene whose negative feeds
+// into the `to` scene's positive.
+
+export function tlLinks(story) {
+  return story.timeline?.links || []
+}
+
+export function addTimelineLink(story, fromSceneId, toSceneId) {
+  if (!fromSceneId || !toSceneId || fromSceneId === toSceneId) return story
+  const links = story.timeline?.links || []
+  if (links.some((l) => l.fromSceneId === fromSceneId && l.toSceneId === toSceneId)) return story
+  return {
+    ...story,
+    timeline: {
+      ...(story.timeline || {}),
+      links: [...links, { id: uid(), fromSceneId, toSceneId }]
+    }
+  }
+}
+
+export function removeTimelineLink(story, linkId) {
+  return {
+    ...story,
+    timeline: {
+      ...(story.timeline || {}),
+      links: (story.timeline?.links || []).filter((l) => l.id !== linkId)
+    }
+  }
 }

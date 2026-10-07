@@ -147,7 +147,7 @@ function shrinkImage(dataUrl) {
 // ---------- the app ----------
 
 function App() {
-  const [story, setStory] = useState(sampleStory)
+  const [story, setStory] = useState(() => sanitizeBoard(sampleStory))
   const [selectedSceneId, setSelectedSceneId] = useState(sampleStory.chapters[0].scenes[0].id)
   const [expanded, setExpanded] = useState(() => new Set(sampleStory.chapters.map((c) => c.id)))
   const [editingChapterId, setEditingChapterId] = useState(null)
@@ -162,6 +162,7 @@ function App() {
   const [view, setView] = useState('editor') // editor | board | timeline
   const sessionRef = useRef(false)
   const fileInputRef = useRef(null)
+  const photoSceneRef = useRef(null)
 
   const selected = findScene(story, selectedSceneId)
   const sceneCount = story.chapters.reduce((total, ch) => total + ch.scenes.length, 0)
@@ -207,10 +208,11 @@ function App() {
   // ----- file management -----
 
   const openStory = (data, filePath) => {
-    setStory(data)
-    const allScenes = data.chapters.flatMap((c) => c.scenes)
+    const clean = sanitizeBoard(data)
+    setStory(clean)
+    const allScenes = clean.chapters.flatMap((c) => c.scenes)
     setSelectedSceneId(allScenes.length ? allScenes[0].id : null)
-    setExpanded(new Set(data.chapters.map((c) => c.id)))
+    setExpanded(new Set(clean.chapters.map((c) => c.id)))
     setProjectPath(filePath)
     setView('editor')
   }
@@ -221,10 +223,14 @@ function App() {
       id: uid(),
       title: 'Untitled Story',
       chapters: [
-        { id: uid(), title: 'Chapter 1', scenes: [{ id: uid(), title: 'Scene 1', text: '' }] }
+        {
+          id: uid(),
+          title: 'Chapter 1',
+          scenes: [{ id: uid(), title: 'Scene 1', text: '', board: { pos: [uid()], neg: [uid()] } }]
+        }
       ]
     }
-    setStory(fresh)
+    setStory(sanitizeBoard(fresh))
     setSelectedSceneId(fresh.chapters[0].scenes[0].id)
     setExpanded(new Set([fresh.chapters[0].id]))
     setProjectPath(null)
@@ -339,7 +345,7 @@ function App() {
     const chapter = {
       id: uid(),
       title: 'New Chapter',
-      scenes: [{ id: uid(), title: 'Scene 1', text: '' }]
+      scenes: [{ id: uid(), title: 'Scene 1', text: '', board: { pos: [uid()], neg: [uid()] } }]
     }
     markChange()
     setStory((prev) => ({ ...prev, chapters: [...prev.chapters, chapter] }))
@@ -349,7 +355,7 @@ function App() {
   }
 
   const handleAddScene = (chapterId) => {
-    const scene = { id: uid(), title: 'New scene', text: '' }
+    const scene = { id: uid(), title: 'New scene', text: '', board: { pos: [uid()], neg: [uid()] } }
     markChange()
     setStory((prev) => ({
       ...prev,
@@ -369,7 +375,7 @@ function App() {
       id: uid(),
       title: 'New scene',
       text: '',
-      board: { x: Math.round(x), y: Math.round(y) }
+      board: { x: Math.round(x), y: Math.round(y), pos: [uid()], neg: [uid()] }
     }
     markChange()
     setStory((prev) => ({
@@ -388,7 +394,7 @@ function App() {
       id: uid(),
       title: 'Scene 1',
       text: '',
-      board: { x: Math.round(x), y: Math.round(y) }
+      board: { x: Math.round(x), y: Math.round(y), pos: [uid()], neg: [uid()] }
     }
     const chapter = {
       id: uid(),
@@ -509,8 +515,9 @@ function App() {
 
   // ----- images -----
 
-  const attachImageFile = async (file) => {
+  const attachImageFile = async (file, targetSceneId) => {
     if (!file || !file.type.startsWith('image/')) return
+    const sceneId = targetSceneId || selectedSceneId
     markChange()
     const dataUrl = await new Promise((resolve) => {
       const reader = new FileReader()
@@ -518,14 +525,23 @@ function App() {
       reader.readAsDataURL(file)
     })
     const image = await shrinkImage(dataUrl)
-    setStory(updateScene(story, selectedSceneId, { image }))
+    setStory(updateScene(story, sceneId, { image }))
     endSession()
   }
 
   const handleFileInput = (e) => {
     const file = e.target.files?.[0]
-    if (file) attachImageFile(file)
+    if (file) attachImageFile(file, photoSceneRef.current)
+    photoSceneRef.current = null
     e.target.value = ''
+  }
+
+  // Used by the Board's right-click menu: "Add photo" opens the very same
+  // image picker, applied straight to that scene.
+  const onAddPhoto = (sceneId) => {
+    endSession()
+    photoSceneRef.current = sceneId
+    fileInputRef.current?.click()
   }
 
   const handleDropFile = (e) => {
@@ -582,9 +598,15 @@ function App() {
           </button>
         </div>
         <div className="topbar-actions">
-          <span className="status-text" title={status}>{status}</span>
-          <button className="bar-btn" onClick={handleNew} title="New story">✚</button>
-          <button className="bar-btn" onClick={handleOpen} title="Open story (Ctrl+O)">📂</button>
+          <span className="status-text" title={status}>
+            {status}
+          </span>
+          <button className="bar-btn" onClick={handleNew} title="New story">
+            ✚
+          </button>
+          <button className="bar-btn" onClick={handleOpen} title="Open story (Ctrl+O)">
+            📂
+          </button>
           <button className="bar-btn primary" onClick={handleSave} title="Save story (Ctrl+S)">
             {projectPath ? '💾' : '💾…'}
           </button>
@@ -628,11 +650,43 @@ function App() {
                   )}
                   <span className="chapter-count">{chapter.scenes.length}</span>
                   <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-                    <button className="icon-btn" title="Rename chapter" onClick={() => startEditChapter(chapter)}>✎</button>
-                    <button className="icon-btn" title="Add scene" onClick={() => handleAddScene(chapter.id)}>＋</button>
-                    <button className="icon-btn" title="Move chapter up" disabled={ci === 0} onClick={() => handleMoveChapter(chapter.id, -1)}>↑</button>
-                    <button className="icon-btn" title="Move chapter down" disabled={ci === story.chapters.length - 1} onClick={() => handleMoveChapter(chapter.id, 1)}>↓</button>
-                    <button className="icon-btn danger" title="Delete chapter" onClick={() => handleDeleteChapter(chapter.id)}>✕</button>
+                    <button
+                      className="icon-btn"
+                      title="Rename chapter"
+                      onClick={() => startEditChapter(chapter)}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      className="icon-btn"
+                      title="Add scene"
+                      onClick={() => handleAddScene(chapter.id)}
+                    >
+                      ＋
+                    </button>
+                    <button
+                      className="icon-btn"
+                      title="Move chapter up"
+                      disabled={ci === 0}
+                      onClick={() => handleMoveChapter(chapter.id, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="icon-btn"
+                      title="Move chapter down"
+                      disabled={ci === story.chapters.length - 1}
+                      onClick={() => handleMoveChapter(chapter.id, 1)}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      className="icon-btn danger"
+                      title="Delete chapter"
+                      onClick={() => handleDeleteChapter(chapter.id)}
+                    >
+                      ✕
+                    </button>
                   </span>
                 </div>
                 {isOpen && (
@@ -688,10 +742,34 @@ function App() {
                             )}
                           </span>
                           <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-                            <button className="icon-btn" title="Rename scene" onClick={() => startEditScene(scene)}>✎</button>
-                            <button className="icon-btn" title="Move up" onClick={() => handleMoveScene(scene.id, -1)}>↑</button>
-                            <button className="icon-btn" title="Move down" onClick={() => handleMoveScene(scene.id, 1)}>↓</button>
-                            <button className="icon-btn danger" title="Delete scene" onClick={() => handleDeleteScene(scene.id)}>✕</button>
+                            <button
+                              className="icon-btn"
+                              title="Rename scene"
+                              onClick={() => startEditScene(scene)}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title="Move up"
+                              onClick={() => handleMoveScene(scene.id, -1)}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title="Move down"
+                              onClick={() => handleMoveScene(scene.id, 1)}
+                            >
+                              ↓
+                            </button>
+                            <button
+                              className="icon-btn danger"
+                              title="Delete scene"
+                              onClick={() => handleDeleteScene(scene.id)}
+                            >
+                              ✕
+                            </button>
                           </span>
                         </div>
                       </li>
@@ -707,65 +785,111 @@ function App() {
           {view === 'editor' ? (
             selected ? (
               <div className="editor-inner">
-              <div className="editor-toolbar">
-                <span className="editor-path">
-                  {selected.chapter.title} › Scene{' '}
-                  {sceneIndexInChapter(selected.chapter, selectedSceneId) + 1}
-                </span>
-                <span className="toolbar-spacer" />
-                <button className="tonal-btn" title="Add a scene to this chapter" onClick={() => handleAddScene(selected.chapter.id)}>＋ Scene</button>
-                <button className="tonal-btn" title="Move scene up" onClick={() => handleMoveScene(selectedSceneId, -1)}>↑</button>
-                <button className="tonal-btn" title="Move scene down" onClick={() => handleMoveScene(selectedSceneId, 1)}>↓</button>
-                <button className="tonal-btn danger" title="Delete this scene" onClick={() => handleDeleteScene(selectedSceneId)}>✕</button>
-              </div>
-
-              <input
-                className="scene-title-input"
-                value={selected.scene.title}
-                onChange={(e) => {
-                  markChange()
-                  setStory(updateScene(story, selectedSceneId, { title: e.target.value }))
-                }}
-                placeholder="Scene title"
-              />
-
-              <div
-                className={'frame' + (selected.scene.image ? ' has-image' : '')}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  e.dataTransfer.dropEffect = 'copy'
-                }}
-                onDrop={handleDropFile}
-              >
-                {selected.scene.image ? (
-                  <img className="frame-img" src={selected.scene.image} alt={selected.scene.title} />
-                ) : (
-                  <div className="frame-empty">
-                    <div className="frame-icon">🖼️</div>
-                    <div>No artwork yet</div>
-                    <div className="frame-hint">Upload, drop an image here, or draw</div>
-                  </div>
-                )}
-                <div className="frame-tools">
-                  <button className="frame-btn" title="Upload an image" onClick={() => fileInputRef.current?.click()}>⬆ Upload</button>
-                  <button className="frame-btn" title="Draw on this frame" onClick={() => setDrawingSceneId(selectedSceneId)}>✎ Draw</button>
-                  {selected.scene.image && (
-                    <button className="frame-btn danger" title="Remove artwork" onClick={removeImage}>✕ Remove</button>
-                  )}
+                <div className="editor-toolbar">
+                  <span className="editor-path">
+                    {selected.chapter.title} › Scene{' '}
+                    {sceneIndexInChapter(selected.chapter, selectedSceneId) + 1}
+                  </span>
+                  <span className="toolbar-spacer" />
+                  <button
+                    className="tonal-btn"
+                    title="Add a scene to this chapter"
+                    onClick={() => handleAddScene(selected.chapter.id)}
+                  >
+                    ＋ Scene
+                  </button>
+                  <button
+                    className="tonal-btn"
+                    title="Move scene up"
+                    onClick={() => handleMoveScene(selectedSceneId, -1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    className="tonal-btn"
+                    title="Move scene down"
+                    onClick={() => handleMoveScene(selectedSceneId, 1)}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    className="tonal-btn danger"
+                    title="Delete this scene"
+                    onClick={() => handleDeleteScene(selectedSceneId)}
+                  >
+                    ✕
+                  </button>
                 </div>
-              </div>
 
-              <textarea
-                className="scene-text"
-                value={selected.scene.text}
-                onChange={(e) => {
-                  markChange()
-                  setStory(updateScene(story, selectedSceneId, { text: e.target.value }))
-                }}
-                placeholder="Write your scene prose here…"
-              />
-            </div>
-          ) : (
+                <input
+                  className="scene-title-input"
+                  value={selected.scene.title}
+                  onChange={(e) => {
+                    markChange()
+                    setStory(updateScene(story, selectedSceneId, { title: e.target.value }))
+                  }}
+                  placeholder="Scene title"
+                />
+
+                <div
+                  className={'frame' + (selected.scene.image ? ' has-image' : '')}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'copy'
+                  }}
+                  onDrop={handleDropFile}
+                >
+                  {selected.scene.image ? (
+                    <img
+                      className="frame-img"
+                      src={selected.scene.image}
+                      alt={selected.scene.title}
+                    />
+                  ) : (
+                    <div className="frame-empty">
+                      <div className="frame-icon">🖼️</div>
+                      <div>No artwork yet</div>
+                      <div className="frame-hint">Upload, drop an image here, or draw</div>
+                    </div>
+                  )}
+                  <div className="frame-tools">
+                    <button
+                      className="frame-btn"
+                      title="Upload an image"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      ⬆ Upload
+                    </button>
+                    <button
+                      className="frame-btn"
+                      title="Draw on this frame"
+                      onClick={() => setDrawingSceneId(selectedSceneId)}
+                    >
+                      ✎ Draw
+                    </button>
+                    {selected.scene.image && (
+                      <button
+                        className="frame-btn danger"
+                        title="Remove artwork"
+                        onClick={removeImage}
+                      >
+                        ✕ Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <textarea
+                  className="scene-text"
+                  value={selected.scene.text}
+                  onChange={(e) => {
+                    markChange()
+                    setStory(updateScene(story, selectedSceneId, { text: e.target.value }))
+                  }}
+                  placeholder="Write your scene prose here…"
+                />
+              </div>
+            ) : (
               <div className="empty-state">
                 <div className="empty-big">No scene selected</div>
                 <div className="empty-hint">Pick a scene from the sidebar, or add a chapter.</div>
@@ -780,6 +904,8 @@ function App() {
               onAddScene={handleAddScene}
               onAddSceneAt={handleAddSceneAt}
               onAddChapterAt={handleAddChapterAt}
+              onDeleteScene={handleDeleteScene}
+              onAddPhoto={onAddPhoto}
               commit={commit}
               patch={patch}
               endSession={endSession}
@@ -798,13 +924,7 @@ function App() {
         </main>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={handleFileInput}
-      />
+      <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleFileInput} />
 
       {drawingSceneId && findScene(story, drawingSceneId) && (
         <DrawingPad
