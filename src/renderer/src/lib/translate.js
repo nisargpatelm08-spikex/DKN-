@@ -126,6 +126,52 @@ function splitChunks(text) {
 // ---- "keep my English words" (Indian mix) placeholders ----
 // English words get replaced by safe tokens before translation, then put back
 // afterwards, so the result keeps them in English — Hinglish style.
+// Only *content* words are protected; grammar/function words stay so the
+// translation engine can do its job.
+
+const GLUE_WORDS = new Set(
+  [
+    // pronouns & possessives
+    'i', 'me', 'my', 'mine', 'we', 'us', 'our', 'ours', 'you', 'your', 'yours',
+    'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'they', 'them', 'their',
+    'theirs', 'this', 'that', 'these', 'those', 'who', 'whom', 'whose', 'which',
+    'what', 'whoever',
+    // be & auxiliaries
+    'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'do', 'does', 'did',
+    'done', 'doing', 'have', 'has', 'had', 'having', 'will', 'would', 'shall',
+    'should', 'can', 'could', 'may', 'might', 'must', 'im', 'ive', 'id', 'ill',
+    'dont', 'doesnt', 'didnt', 'cant', 'cannot', 'wont', 'wouldnt', 'shouldnt',
+    'couldnt', 'havent', 'hasnt', 'hadnt', 'wasnt', 'werent', 'isnt', 'arent',
+    'youre', 'youve', 'youll', 'youd', 'hes', 'shes', 'its', 'thats', 'theres',
+    'weve', 'well', 'wed', 'theyd',
+    // prepositions
+    'of', 'in', 'on', 'at', 'to', 'from', 'with', 'without', 'by', 'for', 'about',
+    'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above',
+    'below', 'under', 'over', 'up', 'down', 'out', 'off', 'near', 'beyond', 'along',
+    'among', 'across', 'toward', 'towards', 'around', 'inside', 'outside', 'behind',
+    'beside', 'within', 'upon', 'per', 'via', 'than',
+    // conjunctions & connectors
+    'and', 'but', 'or', 'nor', 'so', 'yet', 'because', 'though', 'although',
+    'unless', 'until', 'while', 'when', 'where', 'why', 'how', 'if', 'then',
+    'else', 'whether', 'since', 'as',
+    // determiners & quantifiers
+    'a', 'an', 'the', 'some', 'any', 'much', 'many', 'more', 'most', 'less',
+    'few', 'enough', 'little', 'all', 'each', 'every', 'both', 'either', 'neither',
+    'other', 'another', 'several', 'no', 'not', 'nor', 'such',
+    // common adverbs & politeness
+    'very', 'just', 'still', 'even', 'only', 'again', 'here', 'there', 'now',
+    'then', 'later', 'soon', 'often', 'always', 'never', 'sometimes', 'usually',
+    'almost', 'already', 'really', 'quite', 'rather', 'too', 'also', 'maybe',
+    'perhaps', 'please', 'sorry', 'thanks', 'thank', 'welcome', 'yes', 'yeah',
+    'hello', 'hi', 'hey', 'ok', 'okay', 'well', 'oh', 'ah', 'hmm', 'wow',
+    'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'
+  ]
+    .map((w) => w.replace(/['’-]/g, ''))
+)
+
+function isGlue(word) {
+  return GLUE_WORDS.has(word.toLowerCase().replace(/['’-]/g, ''))
+}
 
 const PLACEHOLDER_RE = /[A-Za-z][A-Za-z'-]*/g
 
@@ -133,7 +179,7 @@ function protectEnglishWords(text) {
   const restore = []
   let index = 0
   const protectedText = text.replace(PLACEHOLDER_RE, (word) => {
-    if (isEnglishWord(word) && restore.length < 300) {
+    if (isEnglishWord(word) && !isGlue(word) && restore.length < 300) {
       const tag = 'ZQ' + index + 'ZQ'
       restore.push({ tag, word })
       index++

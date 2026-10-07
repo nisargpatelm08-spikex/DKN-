@@ -148,8 +148,11 @@ const EXCEPTIONS = {
 }
 
 function polishWord(word) {
-  // Hinglish writers drop the drawn-out final "aa" (रहा → raha, था → tha)
+  // Hinglish writers shorten the drawn-out final vowels
+  // (रहा → raha, था → tha, अभी → abhi)
   if (word.endsWith('aa') && word.length > 2) return word.slice(0, -1)
+  if (word.endsWith('ee') && word.length > 2) return word.slice(0, -2) + 'i'
+  if (word.endsWith('oo') && word.length > 2) return word.slice(0, -2) + 'u'
   return word
 }
 
