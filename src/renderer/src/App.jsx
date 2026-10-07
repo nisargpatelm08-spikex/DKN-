@@ -10,6 +10,9 @@ import TranslatePanel from './components/TranslatePanel'
 import { buildPrintHtml } from './lib/printHtml'
 import { pruneLinksForScene, sanitizeBoard, CARD_W, CARD_H } from './lib/boardUtils'
 import * as G from './lib/boardGraph'
+import Help from './components/Help'
+import News from './components/News'
+import { NEWS_ITEMS, NEWS_SEEN_KEY } from './lib/newsData'
 
 const uid = () => crypto.randomUUID()
 const UNDO_LIMIT = 10
@@ -165,8 +168,17 @@ function App() {
   const [drawingSceneId, setDrawingSceneId] = useState(null)
   const [projectPath, setProjectPath] = useState(null)
   const [status, setStatus] = useState('')
-  const [view, setView] = useState('editor') // editor | board | timeline
+  const [view, setView] = useState('editor') // editor | board | timeline | help | news
+  const [newsSeen, setNewsSeen] = useState(() => {
+    try {
+      return localStorage.getItem(NEWS_SEEN_KEY) || ''
+    } catch {
+      return ''
+    }
+  })
   const sessionRef = useRef(false)
+  const newsUnread = !!(NEWS_ITEMS.length && NEWS_ITEMS[0].id !== newsSeen)
+  const docView = view === 'help' || view === 'news'
   const fileInputRef = useRef(null)
   const photoSceneRef = useRef(null)
 
@@ -696,6 +708,20 @@ function App() {
           >
             Timeline
           </button>
+          <button
+            className={'view-btn' + (view === 'help' ? ' active' : '')}
+            onClick={() => setView('help')}
+          >
+            ❔ Help
+          </button>
+          <button
+            className={'view-btn news' + (view === 'news' ? ' active' : '')}
+            onClick={() => setView('news')}
+            title="What's new in DKN"
+          >
+            📣 News
+            {newsUnread && <span className="news-dot" aria-label="New update available" />}
+          </button>
         </div>
         <div className="topbar-actions">
           <span className="status-text" title={status}>
@@ -719,7 +745,7 @@ function App() {
         </div>
       </header>
 
-      <div className="layout">
+      <div className={'layout' + (docView ? ' layout-doc' : '')}>
         <aside className="sidebar">
           <button className="add-chapter-btn" onClick={handleAddChapter}>
             ＋ Add chapter
@@ -881,7 +907,11 @@ function App() {
           })}
         </aside>
 
-        <main className={view === 'editor' ? 'editor' : 'editor editor-view'}>
+        <main
+          className={
+            view === 'editor' ? 'editor' : docView ? 'editor doc-view' : 'editor editor-view'
+          }
+        >
           {view === 'editor' ? (
             selected ? (
               <div className="editor-inner">
@@ -1029,6 +1059,10 @@ function App() {
               patch={patch}
               endSession={endSession}
             />
+          ) : view === 'help' ? (
+            <Help onNavigate={setView} />
+          ) : view === 'news' ? (
+            <News onSeen={(id) => setNewsSeen(id)} />
           ) : (
             <Timeline
               story={story}
