@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>404 — DKN · Storyboard for Novelists</title>
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0c0a09" />
+    <link rel="icon" type="image/png" href="/DKN-/icon.png" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0c0a09;
+        --amber: #ff9d23;
+        --amber-hot: #ffc163;
+        --muted: #a79b8e;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        padding: 40px 24px;
+        background:
+          radial-gradient(700px 420px at 15% 0%, rgba(255, 122, 0, 0.14), transparent 65%),
+          radial-gradient(600px 460px at 85% 100%, rgba(69, 224, 255, 0.08), transparent 65%),
+          var(--bg);
+        color: #f7f1e8;
+        font-family: "Inter", system-ui, sans-serif;
+        overflow: hidden;
+      }
+      .code {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        font-size: clamp(6rem, 26vw, 15rem);
+        line-height: 0.9;
+        letter-spacing: -0.05em;
+        background: linear-gradient(175deg, #fff 8%, var(--amber-hot) 44%, #ff7a00 78%, #b34f00);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        filter: drop-shadow(0 0 50px rgba(255, 157, 35, 0.4));
+        animation: float 5s ease-in-out infinite;
+      }
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-14px);
+        }
+      }
+      h1 {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: clamp(1.3rem, 3vw, 1.9rem);
+        letter-spacing: -0.02em;
+        margin: 26px 0 12px;
+      }
+      p {
+        color: var(--muted);
+        max-width: 46ch;
+        margin: 0 auto 34px;
+        line-height: 1.7;
+      }
+      .chip {
+        display: inline-block;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.72rem;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--amber);
+        border: 1px solid rgba(255, 157, 35, 0.35);
+        background: rgba(255, 157, 35, 0.08);
+        padding: 7px 16px;
+        border-radius: 100px;
+        margin-bottom: 28px;
+      }
+      .btn {
+        display: inline-block;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        text-decoration: none;
+        padding: 15px 30px;
+        border-radius: 12px;
+        background: linear-gradient(160deg, var(--amber-hot), #ff7a00);
+        color: #1a0e00;
+        box-shadow: 0 12px 36px -12px rgba(255, 157, 35, 0.6);
+        transition: transform 0.3s ease;
+      }
+      .btn:hover {
+        transform: translateY(-3px);
+      }
+      .ghost {
+        display: block;
+        margin-top: 18px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.76rem;
+        color: var(--muted);
+        letter-spacing: 0.08em;
+      }
+      .ghost a {
+        color: var(--amber-hot);
+        text-decoration: none;
+      }
+      .ghost a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="code">404</div>
+      <div class="chip">dangling wire</div>
+      <h1>This scene isn't wired to anything.</h1>
+      <p>
+        The page you asked for doesn't exist — maybe it was deleted, renamed, or never got a
+        plus-port. Let's get you back to the story.
+      </p>
+      <a class="btn" href="/DKN-/">← Back to DKN</a>
+      <span class="ghost">
+        or jump to
+        <a href="/DKN-/#features">features</a> · <a href="/DKN-/#download">download</a> ·
+        <a href="/DKN-/#contact">contact</a>
+      </span>
+    </main>
+  </body>
+</html>

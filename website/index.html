@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DKN — Storyboard for Novelists</title>
+    <meta
+      name="description"
+      content="DKN is a free desktop app for novelists. Write scenes chapter by chapter, see your whole story as a board of wired scene cards, and pin every scene to your own story calendar."
+    />
+    <meta name="theme-color" content="#0c0a09" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" type="image/png" href="icon.png" />
+    <link rel="apple-touch-icon" href="icon.png" />
+
+    <!--
+      TODO: base URL below assumes GitHub Pages at
+      https://nisargpatelm08-spikex.github.io/DKN-/
+      swap it for your real domain if you ever point one at this site.
+    -->
+    <link rel="canonical" href="https://nisargpatelm08-spikex.github.io/DKN-/" />
+
+    <!-- Open Graph / link previews (WhatsApp, Discord, iMessage…) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DKN" />
+    <meta property="og:title" content="DKN — Storyboard for Novelists" />
+    <meta
+      property="og:description"
+      content="From story writing to its completion. A desktop storyboard for novelists: scenes, a wired story board and a timeline on a calendar you invent. 100% offline."
+    />
+    <meta property="og:url" content="https://nisargpatelm08-spikex.github.io/DKN-/" />
+    <meta property="og:image" content="https://nisargpatelm08-spikex.github.io/DKN-/icon.png" />
+    <meta property="og:image:alt" content="DKN — Storyboard for Novelists" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="DKN — Storyboard for Novelists" />
+    <meta
+      name="twitter:description"
+      content="From story writing to its completion. A desktop storyboard for novelists — offline, no account."
+    />
+    <meta name="twitter:image" content="https://nisargpatelm08-spikex.github.io/DKN-/icon.png" />
+  </head>
+  <body>
+    <!-- soft cursor glow -->
+    <div class="cursor-glow" aria-hidden="true"></div>
+
+    <!-- ============================= HEADER ============================= -->
+    <header class="site-header" id="top">
+      <div class="header-inner">
+        <a class="brand" href="#top" aria-label="DKN home">
+          <span class="brand-mark">DKN</span>
+          <span class="brand-dot"></span>
+        </a>
+
+        <nav class="main-nav" aria-label="Main">
+          <a href="#features">Features</a>
+          <a href="#versions">Versions</a>
+          <a href="#roadmap">Roadmap</a>
+          <a href="#download">Download</a>
+          <a href="#contact">Contact</a>
+        </nav>
+
+        <a
+          class="btn btn-primary btn-sm header-cta"
+          href="https://github.com/nisargpatelm08-spikex/DKN-/releases/tag/v1.1.0"
+          target="_blank"
+          rel="noopener"
+          >Download<span class="btn-version">v1.1.0</span></a
+        >
+      </div>
+    </header>
+
+    <main>
+      <!-- ============================= HERO ============================= -->
+      <section class="hero" id="hero">
+        <canvas class="hero-canvas" id="heroCanvas" aria-hidden="true"></canvas>
+        <div class="hero-orb" aria-hidden="true"></div>
+        <div class="hero-vignette" aria-hidden="true"></div>
+
+        <div class="hero-content">
+          <div class="hero-chip" data-reveal>
+            <span class="pulse-dot"></span>
+            v1.1.0 — Wire &amp; scene tools are live
+          </div>
+
+          <h1 class="hero-title" data-reveal>
+            <span class="hero-word"
+              ><span class="letter" style="--i: 0">D</span><span class="letter" style="--i: 1"
+                >K</span
+              ><span class="letter" style="--i: 2">N</span></span
+            >
+          </h1>
+
+          <p class="hero-tagline" data-reveal>From story writing to its completion.</p>
+
+          <p class="hero-sub" data-reveal>
+            A desktop storyboard for novelists. Write your story scene by scene, watch it become a
+            <em>graph of wired cards</em>, and pin every moment to a calendar you invent yourself.
+            Works fully offline — your story never leaves your machine.
+          </p>
+
+          <div class="hero-actions" data-reveal>
+            <a
+              class="btn btn-primary"
+              href="https://github.com/nisargpatelm08-spikex/DKN-/releases/tag/v1.1.0"
+              target="_blank"
+              rel="noopener"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.57 2.34 1.12 2.91.86.09-.66.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.3 9.3 0 0 1 2.5-.34c.85 0 1.71.12 2.5.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.35 4.8-4.58 5.05.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.03 10.03 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"
+                />
+              </svg>
+              Download for Windows
+            </a>
+            <a class="btn btn-ghost" href="#versions">See what changed</a>
+          </div>
+
+          <div class="hero-meta" data-reveal>
+            <span class="price-badge">Free for the first year</span>
+            <span class="meta-sep">·</span>
+            <span>No account</span>
+            <span class="meta-sep">·</span>
+            <span>100% offline</span>
+            <span class="meta-sep">·</span>
+            <span>One <code>.dknproj</code> file</span>
+          </div>
+        </div>
+
+        <a class="scroll-hint" href="#ticker" aria-label="Scroll down">
+          <span class="scroll-line"></span>
+        </a>
+      </section>
+
+      <!-- ============================= TICKER ============================= -->
+      <div class="ticker" id="ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <div class="ticker-group">
+            <span>Offline forever</span><i>✦</i><span>No account</span><i>✦</i
+            ><span>No ads</span><i>✦</i><span>One .dknproj file</span><i>✦</i
+            ><span>15+ languages</span><i>✦</i><span>Free for the first year</span><i>✦</i
+            ><span>Built with Electron + React</span><i>✦</i><span>Windows · macOS · Linux</span
+            ><i>✦</i>
+          </div>
+          <div class="ticker-group">
+            <span>Offline forever</span><i>✦</i><span>No account</span><i>✦</i
+            ><span>No ads</span><i>✦</i><span>One .dknproj file</span><i>✦</i
+            ><span>15+ languages</span><i>✦</i><span>Free for the first year</span><i>✦</i
+            ><span>Built with Electron + React</span><i>✦</i><span>Windows · macOS · Linux</span
+            ><i>✦</i>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================= FEATURES / CARD DECK ============================= -->
+      <section class="section" id="features">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <span class="eyebrow">// how it works</span>
+            <h2>One story.<br /><span class="grad-text">Four superpowers.</span></h2>
+            <p class="section-lead">
+              Four powers stacked in one deck. <strong>Tap the stack, swipe it, or use the arrows</strong>
+              — every card flips in with its full detail and its own live effects.
+            </p>
+          </header>
+
+          <div class="showcase" data-reveal>
+            <!-- ---------- text side ---------- -->
+            <div class="showcase-text">
+              <div class="slide-holder">
+                <div class="slide-text active" data-i="0">
+                  <span class="feature-index">01 · Write</span>
+                  <h3>Write it, scene by scene</h3>
+                  <p>
+                    Your story is <strong>chapters → scenes</strong>. Every scene is a title, prose,
+                    an optional picture and a story date. Scene <code>2.3</code> means chapter 2,
+                    scene 3 — that order is what everything else uses. The small <em>When</em> row
+                    under the prose sets where the scene sits in story time.
+                  </p>
+                  <ul class="feature-list">
+                    <li>Drag-and-drop scene reordering</li>
+                    <li>Artwork per scene: upload, drop or draw freehand</li>
+                    <li>10-step undo · autosave session recovery</li>
+                    <li>Whole-story A4 PDF export</li>
+                  </ul>
+                </div>
+
+                <div class="slide-text" data-i="1">
+                  <span class="feature-index">02 · See</span>
+                  <h3>See the whole story at once</h3>
+                  <p>
+                    The Board is a big canvas with one card per scene, connected by glowing
+                    <strong>wires</strong>. Wires leave a scene's
+                    <span class="tag neg">− negative</span> ports and enter another's
+                    <span class="tag pos">＋ positive</span> ports — every wire gets its own dot, so
+                    nothing ever piles up.
+                  </p>
+                  <ul class="feature-list">
+                    <li>Direction chevrons show how the story flows</li>
+                    <li>Thread-bend slider: 0% razor-straight → 100% springy</li>
+                    <li>Beautify untangles crossing wires instantly</li>
+                    <li>Layout is saved inside your story file</li>
+                  </ul>
+                </div>
+
+                <div class="slide-text" data-i="2">
+                  <span class="feature-index">03 · When</span>
+                  <h3>Know exactly when it happens</h3>
+                  <p>
+                    The Timeline runs on a calendar <strong>you build</strong> — name your years,
+                    pick how many months and days they have, invent fantasy dates. Give every scene
+                    a <em>Year · Month · Day · Time</em> and it drops into story time.
+                  </p>
+                  <ul class="feature-list">
+                    <li>Every wire labels the time gap: <code>+2 mo 2 d 14 h</code></li>
+                    <li>⏳ <em>Chapters in time</em> panel shows each chapter's span</li>
+                    <li>Undated scenes wait in the <em>Not dated yet</em> strip</li>
+                    <li>Earlier-than-neighbours scenes become dashed ⟲ flashback wires</li>
+                  </ul>
+                </div>
+
+                <div class="slide-text" data-i="3">
+                  <span class="feature-index">04 · Power tools</span>
+                  <h3>Power tools under two keys</h3>
+                  <p>
+                    Press <kbd>W</kbd> for wire tools, <kbd>S</kbd> over a scene for scene tools —
+                    on the Board <em>and</em> the Timeline. Every item is numbered, so
+                    <kbd>1</kbd>–<kbd>9</kbd> fires it instantly. Keys are yours to rebind in
+                    Settings, and they never fire while you're typing.
+                  </p>
+                  <ul class="feature-list">
+                    <li>✂ Cut-knife: drag a line across wires to sever them</li>
+                    <li>⤳ Insert a scene mid-wire (A → C becomes A → B → C)</li>
+                    <li>⛓ Auto-sequence the whole story or one chapter</li>
+                    <li>✨ Beautify · ▦ Arrange by flow · 🗑 Remove all</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- ---------- card deck side ---------- -->
+            <div class="showcase-deck" id="deck" tabindex="0" role="group" aria-label="DKN screens — tap, swipe or use arrow keys to switch">
+              <!-- 01 · EDITOR -->
+              <div class="deck-card pos-0 live" data-i="0">
+                <div class="app-window">
+                  <div class="window-bar">
+                    <span class="win-dot r"></span><span class="win-dot y"></span
+                    ><span class="win-dot g"></span>
+                    <span class="window-title">DKN — The Lighthouse Keeper · 2.3</span>
+                  </div>
+                  <div class="window-body editor-mock">
+                    <aside class="ed-sidebar">
+                      <div class="ed-chapter">▾ Chapter 1</div>
+                      <div class="ed-scene">1.1 The letter</div>
+                      <div class="ed-scene">1.2 Night train</div>
+                      <div class="ed-chapter active">▾ Chapter 2</div>
+                      <div class="ed-scene selected">2.3 The lighthouse</div>
+                      <div class="ed-scene">2.4 Low tide</div>
+                      <div class="ed-chapter">▸ Chapter 3</div>
+                    </aside>
+                    <div class="ed-main">
+                      <div class="ed-scene-title">2.3 — The Lighthouse</div>
+                      <div class="ed-prose">
+                        <p>
+                          The lighthouse had been dark for eleven years, but tonight the lamp
+                          turned once — slow, deliberate — as if someone down in the village had
+                          finally remembered the sea.
+                        </p>
+                        <p class="ed-caret-line">
+                          Mira counted the revolutions and did not<span class="ed-caret"></span>
+                        </p>
+                      </div>
+                      <div class="ed-when">
+                        <span class="ed-when-label">WHEN</span>
+                        <span class="ed-pill">Year 3</span>
+                        <span class="ed-pill">Month 11</span>
+                        <span class="ed-pill">Day 7</span>
+                        <span class="ed-pill mono">21:40</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 02 · BOARD -->
+              <div class="deck-card" data-i="1">
+                <div class="app-window">
+                  <div class="window-bar">
+                    <span class="win-dot r"></span><span class="win-dot y"></span
+                    ><span class="win-dot g"></span>
+                    <span class="window-title">Board — story graph</span>
+                  </div>
+                  <div class="window-body board-mock">
+                    <svg class="board-wires" viewBox="0 0 560 340" preserveAspectRatio="none" aria-hidden="true">
+                      <defs>
+                        <filter id="glowA" x="-50%" y="-50%" width="200%" height="200%">
+                          <feGaussianBlur stdDeviation="3" result="b" />
+                          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                        </filter>
+                      </defs>
+                      <path class="wire wire-amber" d="M148 84 C 240 84, 250 168, 330 168" filter="url(#glowA)" />
+                      <path class="wire wire-cyan" d="M148 250 C 240 250, 250 176, 330 176" />
+                      <path class="wire wire-violet" d="M436 172 C 470 172, 470 262, 500 262" />
+                      <path class="wire wire-amber dim" d="M148 84 C 230 84, 300 60, 420 64" />
+                      <g class="chevrons">
+                        <path d="M236 116 l8 4 l-8 4" />
+                        <path d="M240 214 l8 -1 l-6 -6" />
+                        <path d="M466 214 l5 7 l7 -4" />
+                      </g>
+                    </svg>
+
+                    <div class="b-card" style="left: 4%; top: 12%">
+                      <span class="b-num">1.1</span>
+                      <span class="b-title">The letter</span>
+                      <i class="port neg" style="top: 40%"></i>
+                      <i class="port neg" style="top: 70%"></i>
+                    </div>
+                    <div class="b-card" style="left: 4%; top: 62%">
+                      <span class="b-num">1.2</span>
+                      <span class="b-title">Night train</span>
+                      <i class="port neg" style="top: 50%"></i>
+                    </div>
+                    <div class="b-card active" style="left: 56%; top: 38%">
+                      <span class="b-num">2.3</span>
+                      <span class="b-title">The lighthouse</span>
+                      <i class="port pos" style="top: 42%"></i>
+                      <i class="port pos" style="top: 68%"></i>
+                      <i class="port neg" style="top: 55%"></i>
+                    </div>
+                    <div class="b-card" style="left: 82%; top: 66%">
+                      <span class="b-num">3.1</span>
+                      <span class="b-title">Storm</span>
+                      <i class="port pos" style="top: 50%"></i>
+                    </div>
+
+                    <span class="wire-chip" style="left: 34%; top: 44%">cause</span>
+                    <span class="wire-chip cyan" style="left: 33%; top: 66%">theme</span>
+
+                    <div class="board-hud">
+                      <span>W — wire tools</span><span>S — scene tools</span
+                      ><span>Ctrl+scroll — zoom</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 03 · TIMELINE -->
+              <div class="deck-card" data-i="2">
+                <div class="app-window">
+                  <div class="window-bar">
+                    <span class="win-dot r"></span><span class="win-dot y"></span
+                    ><span class="win-dot g"></span>
+                    <span class="window-title">Timeline — story calendar</span>
+                  </div>
+                  <div class="window-body timeline-mock">
+                    <div class="tl-axis">
+                      <div class="tl-node" style="left: 6%">
+                        <span class="tl-date">Y1 · Mo 7 · D 12 · 06:40</span>
+                        <span class="tl-scene">1.1 The letter</span>
+                      </div>
+                      <span class="tl-gap" style="left: 27%">+7 h 30 min</span>
+                      <div class="tl-node" style="left: 40%">
+                        <span class="tl-date">Y1 · Mo 7 · D 13 · 00:10</span>
+                        <span class="tl-scene">1.2 Night train</span>
+                      </div>
+                      <span class="tl-gap" style="left: 64%">+2 mo 2 d 14 h</span>
+                      <div class="tl-node current" style="left: 76%">
+                        <span class="tl-date">Y1 · Mo 9 · D 15 · 14:00</span>
+                        <span class="tl-scene">2.3 The lighthouse</span>
+                      </div>
+                      <span class="tl-line"></span>
+                    </div>
+
+                    <div class="tl-flash">
+                      <span class="tl-flash-wire">⟲ back 1 mo 2 d 6 h</span>
+                      <span class="tl-flash-note">flashback · 1.2 → 2.3</span>
+                    </div>
+
+                    <div class="tl-undated">
+                      <span class="tl-undated-label">Not dated yet</span>
+                      <span class="tl-chip">3.1 Storm</span>
+                      <span class="tl-chip">3.2 Aftermath</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 04 · W/S MENU -->
+              <div class="deck-card" data-i="3">
+                <div class="app-window">
+                  <div class="window-bar">
+                    <span class="win-dot r"></span><span class="win-dot y"></span
+                    ><span class="win-dot g"></span>
+                    <span class="window-title">Board — wire tools</span>
+                  </div>
+                  <div class="window-body menu-mock">
+                    <div class="menu-blurred">
+                      <div class="b-card ghost" style="left: 6%; top: 16%">
+                        <span class="b-num">1.1</span><span class="b-title">The letter</span>
+                      </div>
+                      <div class="b-card ghost" style="left: 58%; top: 56%">
+                        <span class="b-num">2.3</span><span class="b-title">The lighthouse</span>
+                      </div>
+                    </div>
+
+                    <div class="tool-menu">
+                      <div class="tool-menu-head">
+                        <kbd class="key-lg">W</kbd>
+                        <span>Wire tools</span>
+                        <span class="tool-menu-hint">Esc to close</span>
+                      </div>
+                      <div class="tool-item"><kbd>1</kbd> ✂ Cut knife</div>
+                      <div class="tool-item"><kbd>2</kbd> ⇢ Connect to next scene</div>
+                      <div class="tool-item"><kbd>3</kbd> ⤳ Insert scene into wire</div>
+                      <div class="tool-item"><kbd>4</kbd> ⛓ Auto sequence</div>
+                      <div class="tool-item"><kbd>5</kbd> ✨ Beautify wires</div>
+                      <div class="tool-item"><kbd>6</kbd> ▦ Arrange by wire flow</div>
+                      <div class="tool-item"><kbd>7</kbd> 🗑 Remove all wires</div>
+                    </div>
+
+                    <div class="tool-menu secondary">
+                      <div class="tool-menu-head">
+                        <kbd class="key-lg alt">S</kbd>
+                        <span>Scene tools</span>
+                      </div>
+                      <div class="tool-item"><kbd>1</kbd> ✎ Edit scene</div>
+                      <div class="tool-item"><kbd>2</kbd> 🖼 Add photo</div>
+                      <div class="tool-item"><kbd>3</kbd> ⧉ Duplicate</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ---------- deck controls ---------- -->
+            <div class="deck-controls">
+              <button class="ctrl" data-dir="-1" aria-label="Previous card">‹</button>
+              <span class="deck-counter"><b>01</b> / 04</span>
+              <div class="deck-dots" role="group" aria-label="Pick a screen">
+                <button class="deck-dot on" data-i="0" aria-label="Editor" aria-pressed="true"></button>
+                <button class="deck-dot" data-i="1" aria-label="Board" aria-pressed="false"></button>
+                <button class="deck-dot" data-i="2" aria-label="Timeline" aria-pressed="false"></button>
+                <button class="deck-dot" data-i="3" aria-label="Tool menus" aria-pressed="false"></button>
+              </div>
+              <button class="ctrl" data-dir="1" aria-label="Next card">›</button>
+              <span class="deck-hint">tap · swipe · ← →</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================= VERSIONS ============================= -->
+      <section class="section section-alt" id="versions">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <span class="eyebrow">// release history</span>
+            <h2>Two versions. <span class="grad-text">One giant leap.</span></h2>
+            <p class="section-lead">
+              DKN 1.0.0 laid the foundation. DKN 1.1.0 rebuilt how the story moves — wires,
+              dates, power tools and a help desk.
+            </p>
+          </header>
+
+          <div class="version-grid">
+            <article class="version-card old" data-reveal>
+              <header class="version-head">
+                <span class="version-tag">Previous</span>
+                <h3 class="version-name">v1.0.0</h3>
+                <span class="version-date">2026 · The foundation</span>
+              </header>
+              <ul class="version-list">
+                <li>Story → chapters → scenes structure</li>
+                <li>Add, rename, delete &amp; drag-reorder scenes</li>
+                <li>Prose editor with artwork per scene</li>
+                <li>Freehand drawing pad: pen, colours, eraser</li>
+                <li>10-step undo (button + Ctrl+Z)</li>
+                <li>Save / open <code>.dknproj</code> + autosave recovery</li>
+                <li>Whole-story A4 PDF export</li>
+                <li>Visual 2D Board + story Timeline</li>
+                <li>Warm-charcoal dark theme</li>
+                <li>Windows installer</li>
+              </ul>
+            </article>
+
+            <div class="version-arrow" aria-hidden="true" data-reveal>
+              <span class="arrow-line"></span>
+              <span class="arrow-glyph">→</span>
+            </div>
+
+            <article class="version-card new" data-reveal>
+              <header class="version-head">
+                <span class="version-tag live"><span class="pulse-dot"></span> Latest</span>
+                <h3 class="version-name">v1.1.0</h3>
+                <span class="version-date">Oct 2026 · The leap</span>
+              </header>
+              <ul class="version-list highlights">
+                <li><strong>W / S tool menus</strong> — numbered wire &amp; scene actions</li>
+                <li><strong>Adjustable shortcuts</strong> — rebind W and S, safe while typing</li>
+                <li><strong>Timeline rebuilt</strong> — Year · Month · Day · Time per scene</li>
+                <li><strong>Time gaps everywhere</strong> — <code>+2 mo 2 d 14 h</code> on every wire</li>
+                <li><strong>Flashbacks</strong> — dashed orange ⟲ back wires</li>
+                <li><strong>＋/− ports</strong> — pixel-exact wires with direction chevrons</li>
+                <li><strong>Thread bend</strong> — straight ↔ curvy wires slider</li>
+                <li><strong>Story-graph Board</strong> — auto-placed cards, layout persists</li>
+                <li><strong>Help desk ❔</strong> — searchable plain-English guide</li>
+                <li><strong>News tab 📣</strong> — what's new per version</li>
+                <li><strong>Smarter translate</strong> — keeps names &amp; loanwords in 15+ languages</li>
+              </ul>
+              <a
+                class="version-link"
+                href="https://github.com/nisargpatelm08-spikex/DKN-/releases/tag/v1.1.0"
+                target="_blank"
+                rel="noopener"
+                >Read the full release notes ↗</a
+              >
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================= ROADMAP ============================= -->
+      <section class="section" id="roadmap">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <span class="eyebrow">// upcoming things</span>
+            <h2>What's <span class="grad-text">cooking</span></h2>
+            <p class="section-lead">
+              The public wishlist — every idea starts here so nothing gets forgotten. Small wins
+              first, bigger features next, wild bets last.
+            </p>
+          </header>
+
+          <div class="roadmap-groups">
+            <div class="roadmap-group" data-reveal>
+              <div class="group-head">
+                <span class="group-icon">🔜</span>
+                <h3>Coming soon</h3>
+                <span class="group-count">5 ideas</span>
+              </div>
+              <div class="group-cards">
+                <div class="idea-card"><span class="status planned">Planned</span><p>Word &amp; scene counters in the top bar</p></div>
+                <div class="idea-card"><span class="status planned">Planned</span><p>Chapter summaries — a synopsis box per chapter</p></div>
+                <div class="idea-card"><span class="status planned">Planned</span><p>Story stats: reading time + progress bar</p></div>
+                <div class="idea-card"><span class="status design">In design</span><p>Grid view — the full storyboard wall</p></div>
+                <div class="idea-card"><span class="status planned">Planned</span><p>Pin / favourite scenes: climax, must-rewrite</p></div>
+              </div>
+            </div>
+
+            <div class="roadmap-group" data-reveal>
+              <div class="group-head">
+                <span class="group-icon">🛠️</span>
+                <h3>Bigger features</h3>
+                <span class="group-count">5 ideas</span>
+              </div>
+              <div class="group-cards">
+                <div class="idea-card"><span class="status design">In design</span><p>Character sheets linked to the scenes they appear in</p></div>
+                <div class="idea-card"><span class="status planned">Planned</span><p>Story templates: hero's journey, three-act, romance…</p></div>
+                <div class="idea-card"><span class="status done">Shipped</span><p>Scene tags — label fight, romance, flashback ✓</p></div>
+                <div class="idea-card"><span class="status planned">Planned</span><p>Search scenes by tag or text across the story</p></div>
+                <div class="idea-card"><span class="status planned">Planned</span><p>Undo to 50 steps + redo (Ctrl+Shift+Z)</p></div>
+              </div>
+            </div>
+
+            <div class="roadmap-group" data-reveal>
+              <div class="group-head">
+                <span class="group-icon">🚀</span>
+                <h3>Stretch goals</h3>
+                <span class="group-count">4 ideas</span>
+              </div>
+              <div class="group-cards">
+                <div class="idea-card"><span class="status explore">Exploring</span><p>Export to .docx, plain text or an HTML folder</p></div>
+                <div class="idea-card"><span class="status explore">Exploring</span><p>Autosave history — recover older versions</p></div>
+                <div class="idea-card"><span class="status explore">Exploring</span><p>Optional AI-assisted art &amp; text — free local models only</p></div>
+                <div class="idea-card"><span class="status explore">Exploring</span><p>Cloud sync or file backups for peace of mind</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================= DOWNLOAD ============================= -->
+      <section class="section section-alt" id="download">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <span class="eyebrow">// get the app</span>
+            <h2>Take DKN <span class="grad-text">home</span></h2>
+            <p class="section-lead">
+              One installer, one file format, zero accounts. Windows is ready today — the other
+              platforms are on the way.
+            </p>
+          </header>
+
+          <div class="platform-grid">
+            <article class="platform-card featured" data-reveal>
+              <div class="platform-top">
+                <span class="platform-os">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+                    <path d="M3 5.6 10.2 4.6v7.1H3V5.6Zm0 12.8 7.2 1v-7H3v6Zm8.2 1.2L21 20.7v-8.9h-9.8v7.6Zm0-16.3v7.6H21V3.3l-9.8 1.4Z" />
+                  </svg>
+                  Windows
+                </span>
+                <span class="platform-badge">Available now</span>
+              </div>
+              <h3 class="platform-version">DKN 1.1.0</h3>
+              <p class="platform-desc">64-bit installer · Windows 10/11 · ~90 MB</p>
+              <a
+                class="btn btn-primary btn-block"
+                href="https://github.com/nisargpatelm08-spikex/DKN-/releases/tag/v1.1.0"
+                target="_blank"
+                rel="noopener"
+                >⬇ Download for Windows</a
+              >
+              <p class="platform-note">
+                Hosted on
+                <a href="https://github.com/nisargpatelm08-spikex/DKN-" target="_blank" rel="noopener"
+                  >GitHub Releases ↗</a
+                >
+              </p>
+            </article>
+
+            <article class="platform-card soon" data-reveal>
+              <div class="platform-top">
+                <span class="platform-os">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+                    <path
+                      d="M16.4 12.7c0-2.2 1.8-3.3 1.9-3.4-1-1.5-2.6-1.7-3.2-1.7-1.4-.1-2.7.8-3.4.8-.7 0-1.8-.8-2.9-.8-1.5 0-2.9.9-3.7 2.2-1.6 2.7-.4 6.8 1.1 9 .7 1.1 1.6 2.3 2.8 2.3 1.1 0 1.5-.7 2.9-.7 1.3 0 1.7.7 2.9.7 1.2 0 2-1.1 2.7-2.2.9-1.3 1.2-2.5 1.2-2.6 0 0-2.3-.9-2.3-3.6ZM14.2 5.9c.6-.8 1-1.8.9-2.9-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.7-.9 2.7 1 .1 2-.5 2.7-1.2Z"
+                    />
+                  </svg>
+                  macOS
+                </span>
+                <span class="platform-badge muted">Coming soon</span>
+              </div>
+              <h3 class="platform-version">In the works</h3>
+              <p class="platform-desc">Apple silicon &amp; Intel build planned</p>
+              <span class="btn btn-disabled btn-block">Coming soon</span>
+            </article>
+
+            <article class="platform-card soon" data-reveal>
+              <div class="platform-top">
+                <span class="platform-os">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+                    <path
+                      d="M12 2c-2 0-3 1.6-3 3.5 0 1.6.3 2.4-.5 3.6-1 1.5-2.7 3.4-2.7 5.7 0 1 .3 1.9.7 2.7-.5.9-.6 2 .2 2.7.8.7 2 .6 3 .5.9-.1 1.7-.2 2.3.2.6.4 1.5.8 2.5.8s1.9-.4 2.5-.8c.6-.4 1.4-.3 2.3-.2 1 .1 2.2.2 3-.5.8-.7.7-1.8.2-2.7.4-.8.7-1.7.7-2.7 0-2.3-1.7-4.2-2.7-5.7-.8-1.2-.5-2-.5-3.6C15 3.6 14 2 12 2Zm-1.6 4.4c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9Zm3.2 0c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9ZM12 10.6c-.8 0-1.7.3-1.7.6 0 .3.9.6 1.7.6s1.7-.3 1.7-.6c0-.3-.9-.6-1.7-.6Z"
+                    />
+                  </svg>
+                  Linux
+                </span>
+                <span class="platform-badge muted">Coming soon</span>
+              </div>
+              <h3 class="platform-version">In the works</h3>
+              <p class="platform-desc">AppImage &amp; .deb planned</p>
+              <span class="btn btn-disabled btn-block">Coming soon</span>
+            </article>
+
+            <article class="platform-card soon future" data-reveal>
+              <div class="platform-top">
+                <span class="platform-os">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+                    <path
+                      d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm0 3v10h10V5H7Zm3.5 12.5h3"
+                    />
+                  </svg>
+                  iOS
+                </span>
+                <span class="platform-badge muted">Future</span>
+              </div>
+              <h3 class="platform-version">On the horizon</h3>
+              <p class="platform-desc">A pocket companion for your story</p>
+              <span class="btn btn-disabled btn-block">Future plan</span>
+            </article>
+          </div>
+
+          <div class="pricing-strip" data-reveal>
+            <div class="price-left">
+              <span class="price-kicker">Pricing</span>
+              <strong>Free for the first year</strong>
+            </div>
+            <div class="price-divider" aria-hidden="true"></div>
+            <p class="price-right">
+              DKN is free right now and will stay free for about a year. After that it becomes the
+              <strong>cheapest story tool you'll ever own</strong> — early users keep everything
+              they've made, always.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================= CONTACT ============================= -->
+      <section class="section" id="contact">
+        <div class="container">
+          <header class="section-head" data-reveal>
+            <span class="eyebrow">// say hello</span>
+            <h2>Built by one person.<br /><span class="grad-text">Talk to him directly.</span></h2>
+            <p class="section-lead">
+              Feature requests, bug reports, story-structure opinions or just a hello — all three
+              doors are open.
+            </p>
+          </header>
+
+          <div class="contact-grid">
+            <a class="contact-card" href="mailto:nisargpatelm08@gmail.com" data-reveal>
+              <span class="contact-icon">✉</span>
+              <span class="contact-label">Email</span>
+              <span class="contact-value">nisargpatelm08@gmail.com</span>
+              <span class="contact-hint">For anything private</span>
+            </a>
+
+            <a
+              class="contact-card"
+              href="https://github.com/nisargpatelm08-spikex/DKN-"
+              target="_blank"
+              rel="noopener"
+              data-reveal
+            >
+              <span class="contact-icon">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+                  <path
+                    d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.57 2.34 1.12 2.91.86.09-.66.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.3 9.3 0 0 1 2.5-.34c.85 0 1.71.12 2.5.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.35 4.8-4.58 5.05.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.03 10.03 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"
+                  />
+                </svg>
+              </span>
+              <span class="contact-label">GitHub</span>
+              <span class="contact-value">nisargpatelm08-spikex/DKN-</span>
+              <span class="contact-hint">Source, issues &amp; releases</span>
+            </a>
+
+            <a
+              class="contact-card"
+              href="https://nisargmpatel.itch.io/dkn-storyboard-for-novelists"
+              target="_blank"
+              rel="noopener"
+              data-reveal
+            >
+              <span class="contact-icon">🕹</span>
+              <span class="contact-label">itch.io</span>
+              <span class="contact-value">nisargmpatel.itch.io</span>
+              <span class="contact-hint">The DKN homepage</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============================= FOOTER ============================= -->
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div class="footer-brand">
+          <span class="brand-mark">DKN</span>
+          <span class="brand-dot"></span>
+          <span class="footer-tag">Storyboard for Novelists</span>
+        </div>
+        <nav class="footer-nav" aria-label="Footer">
+          <a href="#features">Features</a>
+          <a href="#versions">Versions</a>
+          <a href="#roadmap">Roadmap</a>
+          <a href="#download">Download</a>
+          <a href="#contact">Contact</a>
+        </nav>
+        <p class="footer-note">
+          © 2026 Nisarg M Patel · Built with Electron + React · Your story never leaves your
+          machine.
+        </p>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>

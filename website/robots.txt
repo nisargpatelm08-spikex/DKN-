@@ -1,0 +1,7 @@
+# DKN website — robots.txt
+# TODO: swap the domain if you deploy anywhere other than GitHub Pages.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://nisargpatelm08-spikex.github.io/DKN-/sitemap.xml
