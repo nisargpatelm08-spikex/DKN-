@@ -126,9 +126,46 @@ app.whenReady().then(() => {
 
   // Free web translation (used by the in-app Translate tool). Routed through
   // the main process because the renderer's CSP only allows same-origin loads.
+  // Primary provider: Google's unofficial gtx endpoint. When it is
+  // rate-limiting (429) or failing (5xx/network), we fall back to MyMemory's
+  // free API so translating keeps working even while Google is busy.
   ipcMain.handle('dkn:translate', async (_event, payload) => {
     const { q, from = 'auto', to = 'en' } = payload || {}
     if (typeof q !== 'string' || !q.trim()) throw new Error('Nothing to translate')
+    try {
+      return await googleTranslate(q, from, to)
+    } catch (err) {
+      const blocked =
+        err.status === 429 || (err.status >= 500 && err.status <= 599) || !!err.network
+      if (!blocked) throw err
+      console.log('[dkn:translate] Google busy, using MyMemory backup…')
+      try {
+        return await myMemoryTranslate(q, from, to)
+      } catch {
+        throw new Error(
+          'Both translation services are busy right now. Please wait about a minute and try again.'
+        )
+      }
+    }
+  })
+
+  const fetchTranslated = async (url) => {
+    let res
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(20000) })
+    } catch (err) {
+      err.network = true
+      throw err
+    }
+    if (!res.ok) {
+      const err = new Error('Translation service error (' + res.status + ').')
+      err.status = res.status
+      throw err
+    }
+    return res
+  }
+
+  async function googleTranslate(q, from, to) {
     const url =
       'https://translate.googleapis.com/translate_a/single?client=gtx&sl=' +
       encodeURIComponent(from) +
@@ -136,30 +173,88 @@ app.whenReady().then(() => {
       encodeURIComponent(to) +
       '&dt=t&q=' +
       encodeURIComponent(q)
-    let res
-    try {
-      res = await fetch(url, { signal: AbortSignal.timeout(20000) })
-    } catch {
-      throw new Error(
-        'Cannot reach the translation service. Check your internet connection and try again.'
-      )
-    }
-    if (!res.ok) {
-      throw new Error('Translation service error (' + res.status + '). Please try again shortly.')
-    }
+    const res = await fetchTranslated(url)
     let data
     try {
       data = await res.json()
     } catch {
-      throw new Error('The translation service returned an unreadable reply.')
+      const err = new Error('The translation service returned an unreadable reply.')
+      err.status = 502
+      throw err
     }
     const text = ((data && data[0]) || []).map((seg) => (seg && seg[0]) || '').join('')
     return {
       text,
       detected: data && data[2] ? data[2] : null,
-      detectedScript: data && data[8] && data[8][3] ? data[8][3][0] : null
+      detectedScript: data && data[8] && data[8][3] ? data[8][3][0] : null,
+      provider: 'google'
     }
-  })
+  }
+
+  function guessSourceLang(q) {
+    // MyMemory needs a concrete source language; detect script locally.
+    return /[\u0900-\u097F]/.test(q) ? 'hi' : 'en'
+  }
+
+  // MyMemory's free tier caps each request to ~500 characters, so long prose
+  // is split into sentence-sized pieces and stitched back together.
+  function splitForMyMemory(text) {
+    if (text.length <= 450) return [text]
+    const out = []
+    let cur = ''
+    for (const part of text.split(/(?<=[.!?\u0964\u0965])\s+|\n+/)) {
+      if (!part) continue
+      if (cur && (cur + ' ' + part).length > 450) {
+        out.push(cur.trim())
+        cur = ''
+      }
+      let rest = part
+      while (rest.length > 450) {
+        out.push(rest.slice(0, 450))
+        rest = rest.slice(450)
+      }
+      cur = cur ? cur + ' ' + rest : rest
+    }
+    if (cur.trim()) out.push(cur.trim())
+    return out
+  }
+
+  async function myMemoryTranslate(q, from, to) {
+    const src = from && from !== 'auto' ? from : guessSourceLang(q)
+    const pieces = splitForMyMemory(q)
+    const texts = []
+    for (const piece of pieces) {
+      const url =
+        'https://api.mymemory.translated.net/get?q=' +
+        encodeURIComponent(piece) +
+        '&langpair=' +
+        encodeURIComponent(src) +
+        '|' +
+        encodeURIComponent(to)
+      const res = await fetchTranslated(url)
+      let data
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error('The backup translation service returned an unreadable reply.')
+      }
+      if (data && data.responseStatus && data.responseStatus !== 200) {
+        throw new Error('Backup translation service error (' + data.responseStatus + ').')
+      }
+      const pieceText = data && data.responseData && data.responseData.translatedText
+      if (typeof pieceText !== 'string' || !pieceText.trim()) {
+        throw new Error('The backup translation service returned nothing useful.')
+      }
+      texts.push(pieceText)
+      if (pieces.length > 1) await new Promise((r) => setTimeout(r, 250))
+    }
+    return {
+      text: texts.join(' '),
+      detected: src === 'auto' ? null : src,
+      detectedScript: null,
+      provider: 'mymemory'
+    }
+  }
 
   ipcMain.handle('dkn:exportPdf', async (_event, { html, title }) => {
     const result = await dialog.showSaveDialog({

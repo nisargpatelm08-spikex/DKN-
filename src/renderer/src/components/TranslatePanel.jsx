@@ -53,6 +53,8 @@ function TranslatePanel({ sourceText, story, onApply, onApplyStory, onClose }) {
   const [error, setError] = useState('')
   const [detected, setDetected] = useState(null)
   const [detectedScript, setDetectedScript] = useState(null)
+  const [provider, setProvider] = useState(null)
+  const [cacheHit, setCacheHit] = useState(false)
   const [allBusy, setAllBusy] = useState(false)
   const [allProgress, setAllProgress] = useState(0)
   const [allTotal, setAllTotal] = useState(0)
@@ -107,6 +109,8 @@ function TranslatePanel({ sourceText, story, onApply, onApplyStory, onClose }) {
       setDetected(res.detected)
       setDetectedScript(res.detectedScript)
     }
+    setProvider(res.provider || null)
+    setCacheHit(!!res.cached)
     return res.text
   }
 
@@ -304,6 +308,10 @@ function TranslatePanel({ sourceText, story, onApply, onApplyStory, onClose }) {
             <div className="tl-col-head">
               Translation
               <span className="tl-count">{resultWords} words</span>
+              {cacheHit && <span className="tl-chip">from cache</span>}
+              {provider === 'mymemory' && !cacheHit && (
+                <span className="tl-chip">backup service</span>
+              )}
               {busy && <span className="tl-chip busy">translating…</span>}
               {applied && !busy && <span className="tl-chip ok">✓ applied</span>}
             </div>

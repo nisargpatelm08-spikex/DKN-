@@ -5,6 +5,11 @@ Every future feature request starts here, so nothing gets forgotten.
 
 ## ✅ Done — v1.1.0 (latest)
 
+- **Translate tool** (top-bar 🌐): translate any scene's prose or your whole story into 15+ languages — free, no paid APIs, translation runs through a local proxy so the app's security rules stay untouched; if Google's free service is rate-limiting, it automatically falls back to a second free service and says so
+- **Hinglish aware**: auto-detects mixed Hindi+English text (e.g. *"main park mein walk kar raha tha"*) and translates it correctly; Devanagari ⇄ Roman output toggle
+- **Indian mix mode ("keep my English words")**: everyday loanwords (friends, park, meeting, office…) stay in English inside the Hindi translation instead of being force-translated
+- **Language mix meter**: live percentage bar under the prose editor showing how much of your text is English / Hindi / Hinglish / other scripts / numbers
+
 - **Visual 2D Board** (top-bar *Editor ⇄ Board* switch): draggable scene cards, coloured draggable chapter zones (drag a zone to move its scenes, drop a card on another zone to re-chapter it)
 - **Typed plugs & links**: 7 link types (time order, storyline, character, cause & effect, theme, inspiration, research), multiple plugs per scene on any edge, free-text labels, drag dot-to-dot to draw labelled bezier links
 - **Story Timeline** (top-bar *Timeline* view): build your story's calendar from scratch — years with months and days per month, custom month names; drag scene chips onto days, day picker to assign/remove scenes

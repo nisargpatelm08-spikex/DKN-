@@ -8,7 +8,7 @@
 //   - Can render Hindi output in Devanagari या Roman (Hinglish).
 //   - Chunks very long prose so even a whole scene translates in one go.
 
-import { hasDevanagari, isEnglishWord, isHinglishText } from './langMix.js'
+import { hasDevanagari, isHinglishText } from './langMix.js'
 import { toRoman } from './devanagari.js'
 
 export const LANGUAGES = [
@@ -124,53 +124,39 @@ function splitChunks(text) {
 }
 
 // ---- "keep my English words" (Indian mix) placeholders ----
-// English words get replaced by safe tokens before translation, then put back
-// afterwards, so the result keeps them in English — Hinglish style.
-// Only *content* words are protected; grammar/function words stay so the
-// translation engine can do its job.
+// English words an Indian naturally keeps in a Hindi sentence (loanwords like
+// park, meeting, office, time) are wrapped in safe tokens before translation
+// and restored afterwards — producing genuine Hinglish output. Grammar words
+// are left alone so the translation engine can do its job.
 
-const GLUE_WORDS = new Set(
-  [
-    // pronouns & possessives
-    'i', 'me', 'my', 'mine', 'we', 'us', 'our', 'ours', 'you', 'your', 'yours',
-    'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'they', 'them', 'their',
-    'theirs', 'this', 'that', 'these', 'those', 'who', 'whom', 'whose', 'which',
-    'what', 'whoever',
-    // be & auxiliaries
-    'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'do', 'does', 'did',
-    'done', 'doing', 'have', 'has', 'had', 'having', 'will', 'would', 'shall',
-    'should', 'can', 'could', 'may', 'might', 'must', 'im', 'ive', 'id', 'ill',
-    'dont', 'doesnt', 'didnt', 'cant', 'cannot', 'wont', 'wouldnt', 'shouldnt',
-    'couldnt', 'havent', 'hasnt', 'hadnt', 'wasnt', 'werent', 'isnt', 'arent',
-    'youre', 'youve', 'youll', 'youd', 'hes', 'shes', 'its', 'thats', 'theres',
-    'weve', 'well', 'wed', 'theyd',
-    // prepositions
-    'of', 'in', 'on', 'at', 'to', 'from', 'with', 'without', 'by', 'for', 'about',
-    'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above',
-    'below', 'under', 'over', 'up', 'down', 'out', 'off', 'near', 'beyond', 'along',
-    'among', 'across', 'toward', 'towards', 'around', 'inside', 'outside', 'behind',
-    'beside', 'within', 'upon', 'per', 'via', 'than',
-    // conjunctions & connectors
-    'and', 'but', 'or', 'nor', 'so', 'yet', 'because', 'though', 'although',
-    'unless', 'until', 'while', 'when', 'where', 'why', 'how', 'if', 'then',
-    'else', 'whether', 'since', 'as',
-    // determiners & quantifiers
-    'a', 'an', 'the', 'some', 'any', 'much', 'many', 'more', 'most', 'less',
-    'few', 'enough', 'little', 'all', 'each', 'every', 'both', 'either', 'neither',
-    'other', 'another', 'several', 'no', 'not', 'nor', 'such',
-    // common adverbs & politeness
-    'very', 'just', 'still', 'even', 'only', 'again', 'here', 'there', 'now',
-    'then', 'later', 'soon', 'often', 'always', 'never', 'sometimes', 'usually',
-    'almost', 'already', 'really', 'quite', 'rather', 'too', 'also', 'maybe',
-    'perhaps', 'please', 'sorry', 'thanks', 'thank', 'welcome', 'yes', 'yeah',
-    'hello', 'hi', 'hey', 'ok', 'okay', 'well', 'oh', 'ah', 'hmm', 'wow',
-    'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'
-  ]
+const LOANWORDS = new Set(
+  (
+    'park walk time meeting movie movie film office school college university hostel market bus train car bike taxi auto rickshaw ' +
+    'phone mobile call message whatsapp email internet wifi laptop computer system printer ticket station platform ' +
+    'class teacher student exam paper question answer copy notebook pen pencil rubber scale bag books library ' +
+    'plate glass cup spoon table chair room kitchen bathroom bedroom hall house flat sofa bed lamp ' +
+    'party birthday holiday weekend friend friends family mother father sister brother uncle aunt mama ' +
+    'boss manager staff team job work salary money cash bill card bank atm petrol diesel ' +
+    'doctor hospital medicine injection nurse operation patient fever cold cough headache pain sugar bp pressure ' +
+    'test report xray photo camera video gift cake chocolate juice pizza burger tea coffee ' +
+    'dress shirt jeans tshirt shoes watch ring chain makeup lipstick cream soap shampoo oil ' +
+    'problem idea plan question answer excuse mistake chance opportunity project report meeting minutes agenda ' +
+    'road highway traffic signal police station court lawyer judge case fight ticket fine ' +
+    'weather rain cloudy sunny storm waiter hotel restaurant menu bill tip ' +
+    'story chapter scene novel writer author editor draft print publish ' +
+    'today tomorrow yesterday week month year time date morning afternoon evening night day night morning'
+  )
+    .split(/\s+/)
+    .filter(Boolean)
     .map((w) => w.replace(/['’-]/g, ''))
 )
 
-function isGlue(word) {
-  return GLUE_WORDS.has(word.toLowerCase().replace(/['’-]/g, ''))
+function isLoan(word) {
+  const w = word.toLowerCase().replace(/['’-]/g, '')
+  if (LOANWORDS.has(w)) return true
+  if (w.endsWith('es') && LOANWORDS.has(w.slice(0, -2))) return true
+  if (w.endsWith('s') && LOANWORDS.has(w.slice(0, -1))) return true
+  return false
 }
 
 const PLACEHOLDER_RE = /[A-Za-z][A-Za-z'-]*/g
@@ -179,7 +165,7 @@ function protectEnglishWords(text) {
   const restore = []
   let index = 0
   const protectedText = text.replace(PLACEHOLDER_RE, (word) => {
-    if (isEnglishWord(word) && !isGlue(word) && restore.length < 300) {
+    if (isLoan(word) && restore.length < 300) {
       const tag = 'ZQ' + index + 'ZQ'
       restore.push({ tag, word })
       index++
@@ -198,18 +184,136 @@ function restoreEnglishWords(text, restore) {
   return out
 }
 
+// ---- polite request pacing + retry ----
+// The free endpoint rate-limits bursts (HTTP 429), so successive calls are
+// spaced a little apart. Busy/5xx/network replies are handled by the main
+// process (it falls back to a backup provider); here we only retry genuine
+// transient glitches rather than re-hitting a busy service.
+
+const MIN_GAP_MS = 600
+const MAX_ATTEMPTS = 3 // 1 try + up to 2 retries
+
+let lastRequestAt = 0
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Pull an HTTP status out of IPC error text like "…(429)…".
+function requestErrorStatus(err) {
+  const msg = err && err.message ? String(err.message) : String(err)
+  const m = /\b(\d{3})\b/.exec(msg)
+  return m ? Number(m[1]) : null
+}
+
+function isRetryable(err) {
+  const status = requestErrorStatus(err)
+  if (status === 429 || (status >= 500 && status <= 599)) return true
+  const msg = err && err.message ? String(err.message) : String(err)
+  return /Cannot reach|fetch failed|ECONN|ENOTFOUND|socket hang up|network/i.test(msg)
+}
+
+async function callTranslate(q, from, to) {
+  if (!window.api || typeof window.api.translate !== 'function') {
+    throw new Error('Translation is not available in this build.')
+  }
+  let delay = 700
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    // Space every actual request (including retries) at least MIN_GAP_MS apart.
+    const wait = Math.max(0, MIN_GAP_MS - (Date.now() - lastRequestAt))
+    if (wait > 0) await sleep(wait)
+    lastRequestAt = Date.now()
+    try {
+      const res = await window.api.translate({ q, from, to })
+      if (!res || typeof res.text !== 'string')
+        throw new Error('The translation service returned nothing useful.')
+      return res
+    } catch (err) {
+      const last = attempt === MAX_ATTEMPTS - 1
+      if (last || !isRetryable(err)) throw err
+      await sleep(delay + Math.floor(Math.random() * 200))
+      delay *= 2
+    }
+  }
+  /* istanbul ignore next */
+  throw new Error('Translation failed.') // unreachable — loop always throws above
+}
+
+// ---- local translation cache ----
+// The same sentence is often translated over and over (re-opened panels,
+// whole-story re-runs), so finished translations are kept in memory and in
+// localStorage and served instantly without touching the network.
+
+const CACHE_KEY = 'dkn_translate_cache_v1'
+const MAX_CACHE = 120
+
+function loadCache() {
+  try {
+    if (typeof localStorage === 'undefined') return new Map()
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return new Map()
+    return new Map(JSON.parse(raw).map((e) => [e.k, e]))
+  } catch {
+    return new Map()
+  }
+}
+
+let memo = loadCache()
+let cacheSaveTimer = null
+
+function memoGet(key) {
+  const e = memo.get(key)
+  if (!e) return null
+  return {
+    text: e.t,
+    detected: e.d,
+    detectedScript: e.ds,
+    provider: e.p,
+    cached: true
+  }
+}
+
+function memoSet(key, entry) {
+  memo.set(key, {
+    k: key,
+    t: entry.text,
+    d: entry.detected,
+    ds: entry.detectedScript,
+    p: entry.provider
+  })
+  if (memo.size > MAX_CACHE) {
+    const oldest = Array.from(memo.keys()).slice(0, memo.size - MAX_CACHE)
+    oldest.forEach((k) => memo.delete(k))
+  }
+  clearTimeout(cacheSaveTimer)
+  cacheSaveTimer = setTimeout(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(Array.from(memo.values())))
+      }
+    } catch {
+      /* storage full or unavailable — ignore */
+    }
+  }, 1500)
+}
+
 // Main entry: translate a piece of prose.
 // options: { from, to, keepEnglish, roman }
-// returns { text, detected, detectedScript }
+// returns { text, detected, detectedScript, provider, cached }
 export async function translateText(text, options = {}) {
   const { from = 'auto', to = 'en', keepEnglish = false, roman = false } = options
   const source = typeof text === 'string' ? text : ''
-  if (!source.trim()) return { text: '', detected: null, detectedScript: null }
+  if (!source.trim()) {
+    return { text: '', detected: null, detectedScript: null, provider: null, cached: false }
+  }
+
+  const key = JSON.stringify([from, to, !!keepEnglish, !!roman, source])
+  const hit = memoGet(key)
+  if (hit) return hit
 
   const chunks = splitChunks(source)
   const parts = []
   let detected = null
   let detectedScript = null
+  let provider = null
 
   for (const chunk of chunks) {
     let q = chunk.text
@@ -224,6 +328,7 @@ export async function translateText(text, options = {}) {
       detected = res.detected
       detectedScript = res.detectedScript
     }
+    if (res.provider) provider = res.provider
     let out = res.text
 
     // Hinglish (roman Hindi) typing → formal Hindi needs a pivot via English,
@@ -240,17 +345,15 @@ export async function translateText(text, options = {}) {
     parts.push(out)
   }
 
-  return { text: parts.join('\n\n'), detected, detectedScript }
-}
-
-async function callTranslate(q, from, to) {
-  if (!window.api || typeof window.api.translate !== 'function') {
-    throw new Error('Translation is not available in this build.')
+  const result = {
+    text: parts.join('\n\n'),
+    detected,
+    detectedScript,
+    provider,
+    cached: false
   }
-  const res = await window.api.translate({ q, from, to })
-  if (!res || typeof res.text !== 'string')
-    throw new Error('The translation service returned nothing useful.')
-  return res
+  memoSet(key, result)
+  return result
 }
 
 // ---------- editor prefs (last used choices) ----------
