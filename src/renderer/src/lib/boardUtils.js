@@ -143,24 +143,75 @@ export function normalOf(side) {
   return { x: 0, y: 1 }
 }
 
-export function linkPath(from, to) {
+const clamp01 = (v) => Math.min(1, Math.max(0, v))
+
+// Thread geometry — modelled on Blender's node "noodles" (drawnode.cc).
+// A thread leaves its plug along that plug's side normal (like a socket) and
+// arrives along the other plug's normal. The handle length comes from the
+// user-facing `curve` setting (Thread bend, 0..1 — Blender's "Noodle
+// Curving"). Like Blender, handles are clamped short when the two plugs sit
+// nearly in line, so threads never hump; curving 0 draws a perfectly straight
+// thread. `bend` then fans parallel threads into separate lanes.
+function threadCtrlPoints(from, to, bend, curve) {
   const n1 = normalOf(from.side || 'right')
   const n2 = normalOf(to.side || 'left')
-  const dx = Math.abs(to.x - from.x)
-  const dy = Math.abs(to.y - from.y)
-  const L = Math.max(48, (dx >= dy ? dx : dy) * 0.55)
-  const c1 = { x: from.x + n1.x * L, y: from.y + n1.y * L }
-  const c2 = { x: to.x + n2.x * L, y: to.y + n2.y * L }
+  const curving = clamp01(curve ?? 0.5)
+
+  let c1, c2
+  if (curving === 0) {
+    // Straight thread: control points land at 1/3 and 2/3 of the way across.
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    c1 = { x: from.x + dx / 3, y: from.y + dy / 3 }
+    c2 = { x: from.x + (dx * 2) / 3, y: from.y + (dy * 2) / 3 }
+  }
+  else {
+    // Distance along the exit direction against the distance across it
+    // (Blender's dist_x / dist_y, generalized for plugs on any side).
+    const along = (to.x - from.x) * n1.x + (to.y - from.y) * n1.y
+    const acrossLen = Math.abs(-(to.x - from.x) * n1.y + (to.y - from.y) * n1.x)
+    const distAlong = Math.max(1, Math.abs(along))
+    // Near-parallel plugs keep short handles so the thread stays flat.
+    const slope = acrossLen / distAlong
+    const clampFactor = Math.min(1, slope * (4.5 - 0.25 * curving))
+    // Blender: handle_offset = curving * 0.1 * dist_x * clamp_factor. A small
+    // floor keeps even tiny threads gently bowed — a wire never becomes a
+    // paper-thin hard line.
+    const handle = Math.max(14, curving * 0.1 * distAlong * clampFactor)
+    c1 = { x: from.x + n1.x * handle, y: from.y + n1.y * handle }
+    c2 = { x: to.x + n2.x * handle, y: to.y + n2.y * handle }
+  }
+
+  if (bend) {
+    // Shift both control points sideways so the whole thread bows into its
+    // lane while both ends stay glued to their plugs.
+    const tx = to.x - from.x
+    const ty = to.y - from.y
+    const len = Math.hypot(tx, ty) || 1
+    const px = -ty / len
+    const py = tx / len
+    c1.x += px * bend
+    c1.y += py * bend
+    c2.x += px * bend
+    c2.y += py * bend
+  }
+  return { c1, c2 }
+}
+
+export function linkPath(from, to, bend = 0, curve = 0.5) {
+  const { c1, c2 } = threadCtrlPoints(from, to, bend, curve)
   return `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`
 }
 
-export function midOf(from, to) {
-  const tx = to.x - from.x
-  const ty = to.y - from.y
-  const len = Math.hypot(tx, ty) || 1
+// The point halfway along the thread (t = 0.5 of the cubic), so a link's label
+// chip always sits on its own thread — not shared with a parallel one.
+export function midOf(from, to, bend = 0, curve = 0.5) {
+  const { c1, c2 } = threadCtrlPoints(from, to, bend, curve)
+  const t = 0.5
+  const u = 1 - t
   return {
-    x: (from.x + to.x) / 2 + (-ty / len) * 12,
-    y: (from.y + to.y) / 2 + (tx / len) * 12
+    x: u * u * u * from.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * to.x,
+    y: u * u * u * from.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * to.y
   }
 }
 

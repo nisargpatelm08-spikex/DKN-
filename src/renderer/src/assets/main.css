@@ -1016,15 +1016,32 @@ li:has(.scene-item.drag-over) {
 
 .board-link {
   fill: none;
-  stroke-width: 2.5;
+  stroke-width: 4;
   vector-effect: non-scaling-stroke;
-  opacity: 0.85;
+  opacity: 1;
   pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+/* Soft wide under-stroke — the glowing "cable" edge of a thread, like the
+   outer pass Blender draws for node wires. */
+.board-link-soft {
+  fill: none;
+  stroke-width: 10;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.22;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
 }
 
 .board-link-g.selected .board-link {
   opacity: 1;
-  stroke-width: 4;
+  stroke-width: 6;
+}
+
+.board-link-g.selected .board-link-soft {
+  stroke-width: 12;
+  opacity: 0.3;
 }
 
 .board-link-hit {
@@ -1710,6 +1727,18 @@ textarea.tl-input {
 .tl-sens-row input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
+}
+
+.tl-sens-sep {
+  height: 1px;
+  background: var(--line);
+}
+
+.tl-sens-sub {
+  font-size: 10px;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .tl-chip-slot {

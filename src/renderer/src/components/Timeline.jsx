@@ -292,16 +292,16 @@ export default function Timeline({
         <button
           className={'board-tool-btn' + (sensOpen ? ' active' : '')}
           onClick={() => setSensOpen((o) => !o)}
-          title="Mouse sensitivity — how fast scrolling pans and zooms"
+          title="Board & timeline settings — scrolling, zooming and thread looks"
         >
-          🖱 Sensitivity
+          ⚙ Settings
         </button>
       </div>
 
       {sensOpen && (
         <div className="tl-sens-panel" onPointerDown={(e) => e.stopPropagation()}>
           <div className="board-popover-head">
-            <span className="pop-title">Mouse sensitivity</span>
+            <span className="pop-title">Settings</span>
             <button className="pop-close" onClick={() => setSensOpen(false)}>
               ✕
             </button>
@@ -334,9 +334,25 @@ export default function Timeline({
               onChange={(e) => changePrefs({ zoomStep: Number(e.target.value) })}
             />
           </div>
+          <div className="tl-sens-sep" />
+          <div className="tl-sens-sub">Threads on the Board</div>
+          <div className="tl-sens-row">
+            <label>
+              <span>Thread bend</span>
+              <span>{prefs.threadCurve}%</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={prefs.threadCurve}
+              onChange={(e) => changePrefs({ threadCurve: Number(e.target.value) })}
+            />
+          </div>
           <div className="pop-hint">
-            Lower = gentler. Settings apply to both the Timeline and the Board, and are remembered
-            on this computer.
+            Lower = gentler. Thread bend makes the lines between plugs more or less curvy —
+            like a loose thread at high %, straight at 0%. Remembered on this computer.
           </div>
           <button className="board-tool-btn" onClick={resetPrefs}>
             Reset to default

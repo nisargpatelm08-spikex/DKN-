@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import * as B from '../lib/boardUtils'
 import * as T from '../lib/timelineUtils'
-import { getPrefs } from '../lib/prefs'
+import { getPrefs, PREFS_EVENT, PREFS_DEFAULTS } from '../lib/prefs'
 import { WORLD, WORLD_HALF, useCanvasView, useViewportSize, useWheelZoom } from '../lib/canvasView'
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
@@ -29,7 +29,19 @@ export default function Board({
   const [ctxMenu, setCtxMenu] = useState(null) // { x, y, worldX, worldY, chapter }
   const [linkDraft, setLinkDraft] = useState({ type: B.DEFAULT_PLUG_TYPE, label: '' })
   const [plugDraft, setPlugDraft] = useState({ side: 'left', type: B.DEFAULT_PLUG_TYPE, label: '', note: '' })
-  const prefsRef = useRef(getPrefs())
+  // Preferences react to live changes (e.g. the Thread bend slider in the
+  // Timeline's Settings panel redraws the threads as it moves).
+  const [prefs, setPrefs] = useState(getPrefs)
+  const prefsRef = useRef(prefs)
+  const threadCurve = (prefs.threadCurve ?? PREFS_DEFAULTS.threadCurve) / 100
+  useEffect(() => {
+    const onPrefs = (e) => {
+      prefsRef.current = e.detail
+      setPrefs(e.detail)
+    }
+    window.addEventListener(PREFS_EVENT, onPrefs)
+    return () => window.removeEventListener(PREFS_EVENT, onPrefs)
+  }, [])
 
   useWheelZoom(viewportRef, (e) => {
     const rect = viewportRef.current.getBoundingClientRect()
@@ -72,11 +84,34 @@ export default function Board({
       const from = plugLookup.get(link.from?.sceneId + ':' + link.from?.plugId)
       const to = plugLookup.get(link.to?.sceneId + ':' + link.to?.plugId)
       if (!from || !to) return []
-      const type = typeOf(link.type)
-      return [{ link, from, to, type, d: B.linkPath(from, to), mid: B.midOf(from, to) }]
+      return [{ link, from, to, type: typeOf(link.type) }]
+    })
+    // Threads between the same two scenes are fanned into lanes, so no two
+    // threads are ever drawn exactly on top of each other.
+    const groups = new Map()
+    links.forEach((it) => {
+      const a = it.link.from.sceneId
+      const b = it.link.to.sceneId
+      const key = a < b ? a + '|' + b : b + '|' + a
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(it)
+    })
+    const BEND = 18
+    groups.forEach((items) => {
+      items.sort(
+        (p, q) =>
+          String(p.type.id).localeCompare(String(q.type.id)) ||
+          String(p.link.id).localeCompare(String(q.link.id))
+      )
+      const n = items.length
+      items.forEach((it, i) => {
+        it.bend = n === 1 ? 0 : (i - (n - 1) / 2) * BEND
+        it.d = B.linkPath(it.from, it.to, it.bend, threadCurve)
+        it.mid = B.midOf(it.from, it.to, it.bend, threadCurve)
+      })
     })
     return { chapters, links }
-  }, [story])
+  }, [story, prefs])
 
   const allPlugs = useMemo(
     () => board.chapters.flatMap((c) => c.scenes.flatMap((sc) => sc.plugs)),
@@ -446,9 +481,16 @@ export default function Board({
     drag && drag.kind === 'link'
       ? B.linkPath(
           { x: drag.fromX, y: drag.fromY, side: drag.fromSide },
-          { x: drag.worldX, y: drag.worldY, side: drag.worldX >= drag.fromX ? 'left' : 'right' }
+          { x: drag.worldX, y: drag.worldY, side: drag.worldX >= drag.fromX ? 'left' : 'right' },
+          0,
+          threadCurve
         )
       : ''
+
+  // Zoom-out dimming (Blender's `dim_factor`): threads stay readable when the
+  // board is packed, but the ones you are not interacting with fade slightly
+  // so the map does not shout. Selected threads stay fully bright.
+  const dim = clamp((view.scale - 0.45) / 0.55, 0.35, 1)
 
   const ring = drag && drag.kind === 'link' ? drag.snap || drag.fallback : null
 
@@ -599,23 +641,50 @@ export default function Board({
           >
             <defs>
               {B.PLUG_TYPES.map((t) => (
-                <marker key={t.id} id={'arr-' + t.id} markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto">
-                  <path d="M0 0 L11 5.5 L0 11 Z" fill={t.color} />
+                <marker
+                  key={t.id}
+                  id={'arr-' + t.id}
+                  markerWidth="13"
+                  markerHeight="13"
+                  refX="10.5"
+                  refY="6.5"
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  <path d="M0 0 L13 6.5 L0 13 Z" fill={t.color} />
                 </marker>
               ))}
             </defs>
-            {board.links.map(({ link, d, type }) => (
-              <g key={'l-' + link.id} className={'board-link-g' + (selectedLinkId === link.id ? ' selected' : '')}>
-                <path className="board-link-hit" d={d} onPointerDown={(e) => onLinkPointerDown(e, { link })} />
-                <path
-                  className="board-link"
-                  d={d}
-                  stroke={type.color}
-                  strokeDasharray={type.dash || undefined}
-                  markerEnd={'url(#arr-' + type.id + ')'}
-                />
-              </g>
-            ))}
+            {board.links.map(({ link, from, to, d, type }) => {
+              const selected = selectedLinkId === link.id
+              return (
+                <g key={'l-' + link.id} className={'board-link-g' + (selected ? ' selected' : '')}>
+                  <path className="board-link-hit" d={d} onPointerDown={(e) => onLinkPointerDown(e, { link })} />
+                  {/* soft wide under-stroke: the glowing ribbon edge (Blender's outer pass) */}
+                  <path
+                    className="board-link-soft"
+                    d={d}
+                    stroke={type.color}
+                    style={{ opacity: selected ? 0.3 : dim * 0.22 }}
+                  />
+                  {/* bright solid core with the thread's colour, dash pattern and arrow (Blender's inner passes) */}
+                  <path
+                    className="board-link"
+                    d={d}
+                    stroke={type.color}
+                    strokeDasharray={type.dash || undefined}
+                    markerEnd={'url(#arr-' + type.id + ')'}
+                    style={{
+                      filter: `drop-shadow(0 0 ${selected ? 6 : 4}px ${type.color})`,
+                      opacity: selected ? 1 : dim
+                    }}
+                  />
+                  {/* anchor dots so the thread visibly starts and ends on both plugs */}
+                  <circle cx={from.x} cy={from.y} r={5} fill={type.color} />
+                  <circle cx={to.x} cy={to.y} r={5} fill={type.color} />
+                </g>
+              )
+            })}
             {drag && drag.kind === 'link' && (
               <path
                 className="board-link board-link-ghost"
